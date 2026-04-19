@@ -149,11 +149,18 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     <div>
       {/* Currency */}
       <div className="grid grid-cols-5 gap-3 mb-5">
-        {['copper','silver','electrum','gold','platinum'].map(coin => (
-          <div key={coin} className="stat-box">
-            <div className="label text-xs text-center uppercase">{coin.slice(0, 2)}</div>
-            <input type="number" min={0} {...register(coin, { valueAsNumber: true })}
-              className="input text-center p-1" disabled={readOnly} />
+        {[
+          { key: 'copper',   label: 'CP', box: 'bg-orange-950 border-orange-700', lbl: 'text-orange-400', inp: 'text-orange-200' },
+          { key: 'silver',   label: 'SP', box: 'bg-slate-800  border-slate-500',  lbl: 'text-slate-300',  inp: 'text-slate-100' },
+          { key: 'electrum', label: 'EP', box: 'bg-purple-950 border-purple-700', lbl: 'text-purple-400', inp: 'text-purple-200' },
+          { key: 'gold',     label: 'GP', box: 'bg-yellow-950 border-yellow-700', lbl: 'text-yellow-400', inp: 'text-yellow-200' },
+          { key: 'platinum', label: 'PP', box: 'bg-slate-700  border-slate-400',  lbl: 'text-slate-200',  inp: 'text-white'     },
+        ].map(({ key, label, box, lbl, inp }) => (
+          <div key={key} className={`border rounded-lg p-2 text-center ${box}`}>
+            <div className={`text-xs font-semibold mb-1 ${lbl}`}>{label}</div>
+            <input type="number" min={0} {...register(key, { valueAsNumber: true })}
+              className={`no-spinner bg-transparent border-0 text-center w-full p-0 text-sm font-medium focus:outline-none ${inp}`}
+              disabled={readOnly} />
           </div>
         ))}
       </div>

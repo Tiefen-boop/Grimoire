@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { @apply h-full; }
+  body { @apply h-full bg-stone-950 text-stone-100; }
+  #root { @apply h-full; }
+}
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-stone-900 disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-red-800 hover:bg-red-700 text-white focus:ring-red-600; }
+  .btn-secondary { @apply btn bg-stone-700 hover:bg-stone-600 text-stone-100 focus:ring-stone-500; }
+  .btn-danger { @apply btn bg-red-900 hover:bg-red-800 text-red-100 focus:ring-red-700; }
+  .btn-sm { @apply px-3 py-1.5 text-sm; }
+  .input { @apply block w-full rounded-lg bg-stone-800 border border-stone-600 text-stone-100 placeholder-stone-500 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent; }
+  .label { @apply block text-sm font-medium text-stone-400 mb-1; }
+  .card { @apply bg-stone-900 border border-stone-700 rounded-xl p-4; }
+  .section-title { @apply text-lg font-bold text-red-400 uppercase tracking-wider mb-3 border-b border-stone-700 pb-1; }
+  .stat-box { @apply bg-stone-800 border border-stone-600 rounded-lg p-2 text-center; }
+}

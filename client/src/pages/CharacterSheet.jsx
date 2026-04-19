@@ -4,6 +4,7 @@ import { useForm, useFieldArray } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline'
+import EquipmentSection from '../components/EquipmentSection'
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -97,7 +98,6 @@ export default function CharacterSheet() {
   })
 
   const { fields: attackFields, append: addAttack, remove: removeAttack } = useFieldArray({ control, name: 'attacks' })
-  const { fields: equipFields, append: addEquip, remove: removeEquip } = useFieldArray({ control, name: 'equipment' })
   const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({ control, name: 'spells' })
   const { fields: featureFields, append: addFeature, remove: removeFeature } = useFieldArray({ control, name: 'features_list' })
 
@@ -106,44 +106,7 @@ export default function CharacterSheet() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  const [expandedEquip, setExpandedEquip] = useState(new Set())
-  const [editingEquip, setEditingEquip] = useState(new Set())
-  const prevEquipLengthRef = useRef(0)
-
-  useEffect(() => {
-    if (equipFields.length > prevEquipLengthRef.current) {
-      const newId = equipFields[equipFields.length - 1].id
-      setEditingEquip(prev => new Set([...prev, newId]))
-      setExpandedEquip(prev => new Set([...prev, newId]))
-    }
-    prevEquipLengthRef.current = equipFields.length
-  }, [equipFields.length])
-
-  function toggleExpandEquip(fieldId) {
-    setExpandedEquip(prev => {
-      const next = new Set(prev)
-      next.has(fieldId) ? next.delete(fieldId) : next.add(fieldId)
-      return next
-    })
-  }
-
-  function startEditEquip(fieldId) {
-    setEditingEquip(prev => new Set([...prev, fieldId]))
-    setExpandedEquip(prev => new Set([...prev, fieldId]))
-  }
-
-  function stopEditEquip(fieldId) {
-    setEditingEquip(prev => { const n = new Set(prev); n.delete(fieldId); return n })
-  }
-
-  function handleRemoveEquip(i) {
-    const fieldId = equipFields[i].id
-    setEditingEquip(prev => { const n = new Set(prev); n.delete(fieldId); return n })
-    setExpandedEquip(prev => { const n = new Set(prev); n.delete(fieldId); return n })
-    removeEquip(i)
-  }
-
-  const [expandedFeatures, setExpandedFeatures] = useState(new Set())
+const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
 
@@ -589,105 +552,7 @@ export default function CharacterSheet() {
 
       {/* Equipment & Currency */}
       <Section title="Equipment & Currency" defaultOpen={false}>
-        <div className="grid grid-cols-5 gap-3 mb-4">
-          {['copper','silver','electrum','gold','platinum'].map(coin => (
-            <div key={coin} className="stat-box">
-              <div className="label text-xs text-center uppercase">{coin.slice(0,2)}</div>
-              <input type="number" min={0} {...register(coin, { valueAsNumber: true })}
-                className="input text-center p-1" disabled={readOnly} />
-            </div>
-          ))}
-        </div>
-        <div className="space-y-1 mb-2">
-          {equipFields.map((field, i) => {
-            const isExpanded = expandedEquip.has(field.id)
-            const isEditing = editingEquip.has(field.id)
-            const itemName = watch(`equipment.${i}.name`)
-            const itemPrice = watch(`equipment.${i}.price`)
-            const itemAmount = watch(`equipment.${i}.amount`)
-            const itemDesc = watch(`equipment.${i}.description`)
-            return (
-              <div key={field.id} className="bg-stone-800 border border-stone-700 rounded-lg overflow-hidden">
-                {isEditing && !readOnly ? (
-                  /* Edit mode */
-                  <div>
-                    <div className="flex gap-2 p-2">
-                      <input {...register(`equipment.${i}.name`)} className="input flex-1 min-w-0" placeholder="Item name" autoFocus={!itemName} />
-                      <input {...register(`equipment.${i}.price`)} className="input w-24" placeholder="Price" />
-                      <div className="flex items-center shrink-0">
-                        <button type="button"
-                          onClick={() => { const v = parseInt(watch(`equipment.${i}.amount`)) || 0; setValue(`equipment.${i}.amount`, String(Math.max(0, v - 1))) }}
-                          className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-l-lg text-stone-200 text-sm leading-none">−</button>
-                        <input {...register(`equipment.${i}.amount`)} className="input w-12 rounded-none text-center px-1" placeholder="1" />
-                        <button type="button"
-                          onClick={() => { const v = parseInt(watch(`equipment.${i}.amount`)) || 0; setValue(`equipment.${i}.amount`, String(v + 1)) }}
-                          className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-r-lg text-stone-200 text-sm leading-none">+</button>
-                      </div>
-                      <button type="button" onClick={() => stopEditEquip(field.id)}
-                        className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done editing">
-                        <CheckIcon className="w-4 h-4" />
-                      </button>
-                      <button type="button" onClick={() => handleRemoveEquip(i)}
-                        className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="px-2 pb-2">
-                      <textarea
-                        {...register(`equipment.${i}.description`)}
-                        className="input w-full resize-none"
-                        rows={3}
-                        placeholder="Description (optional)"
-                        style={{ whiteSpace: 'pre-wrap' }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  /* View mode */
-                  <div>
-                    <div
-                      className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
-                      onClick={() => toggleExpandEquip(field.id)}
-                    >
-                      <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                      <span className="flex-1 text-stone-100 text-sm font-medium truncate">{itemName || <span className="text-stone-500 italic">Unnamed item</span>}</span>
-                      {itemPrice && <span className="text-stone-400 text-xs shrink-0">{itemPrice}</span>}
-                      {itemAmount && <span className="text-stone-400 text-xs shrink-0">×{itemAmount}</span>}
-                      {!readOnly && (
-                        <>
-                          <button type="button"
-                            onClick={e => { e.stopPropagation(); startEditEquip(field.id) }}
-                            className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0" title="Edit item">
-                            <PencilIcon className="w-4 h-4" />
-                          </button>
-                          <button type="button"
-                            onClick={e => { e.stopPropagation(); handleRemoveEquip(i) }}
-                            className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
-                            <TrashIcon className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    {isExpanded && (
-                      <div className="px-3 pb-3 border-t border-stone-700 pt-2">
-                        {itemDesc
-                          ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{itemDesc}</p>
-                          : <p className="text-stone-500 text-sm italic">No description.</p>
-                        }
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        {!readOnly && (
-          <button type="button" onClick={() => addEquip({ name: '', price: '', amount: '1', description: '' })}
-            className="btn btn-secondary btn-sm">
-            <PlusIcon className="w-4 h-4 mr-1" /> Add Item
-          </button>
-        )}
+        <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly} />
       </Section>
 
       {/* Spellcasting */}

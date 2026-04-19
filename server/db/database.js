@@ -13,6 +13,13 @@ function getDb() {
     db = new Database(dbPath)
     const schema = fs.readFileSync(schemaPath, 'utf8')
     db.exec(schema)
+    // Migrations: add columns that may not exist on older databases
+    const migrations = [
+      "ALTER TABLE characters ADD COLUMN features_list TEXT NOT NULL DEFAULT '[]'",
+    ]
+    for (const sql of migrations) {
+      try { db.exec(sql) } catch { /* column already exists */ }
+    }
   }
   return db
 }

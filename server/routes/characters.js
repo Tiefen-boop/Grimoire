@@ -18,12 +18,12 @@ const CHARACTER_FIELDS = [
   'other_proficiencies','character_backstory','allies_and_organizations',
   'additional_features_and_traits','treasure',
   'age','height','weight','eyes','skin','hair','appearance_notes',
-  'passive_perception','conditions','notes'
+  'passive_perception','conditions','notes','features_list'
 ]
 
 const JSON_FIELDS = new Set([
   'saving_throw_profs','skill_profs','skill_expertise','attacks','equipment',
-  'spell_slots','spells','conditions'
+  'spell_slots','spells','conditions','features_list'
 ])
 
 function parseJsonFields(char) {

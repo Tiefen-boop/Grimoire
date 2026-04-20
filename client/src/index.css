@@ -8,6 +8,11 @@
   #root { @apply h-full; }
 }
 
+/* Hide number input spin buttons */
+input[type=number].no-spinner::-webkit-outer-spin-button,
+input[type=number].no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number].no-spinner { -moz-appearance: textfield; }
+
 @layer components {
   .btn { @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-stone-900 disabled:opacity-50 disabled:cursor-not-allowed; }
   .btn-primary { @apply btn bg-red-800 hover:bg-red-700 text-white focus:ring-red-600; }

@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS characters (
   -- Conditions (JSON array)
   conditions TEXT NOT NULL DEFAULT '[]',
 
+  -- Features list (JSON array of {name, description})
+  features_list TEXT NOT NULL DEFAULT '[]',
+
   -- Notes
   notes TEXT NOT NULL DEFAULT '',
 

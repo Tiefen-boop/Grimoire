@@ -39,7 +39,7 @@ const CATEGORIES = [
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '' }),
+    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false }),
   },
   {
     type: 'usable', label: 'Usables', color: 'text-green-400',
@@ -74,6 +74,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [useModal,    setUseModal]    = useState(null)  // { index, name }
   const [zeroModal,   setZeroModal]   = useState(null)  // { index, name }
   const [attuneModal, setAttuneModal] = useState(null)  // { names: [] }
+  const [equipModal,  setEquipModal]  = useState(null)  // { isShield, existingName, newName }
 
   // Property add form
   const [propFormFor, setPropFormFor] = useState(null)  // field.id or null
@@ -123,6 +124,39 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       return
     }
     setValue(`equipment.${i}.attuned`, !isAttuned, { shouldDirty: true })
+  }
+  function computeAC(equipList) {
+    const armor  = equipList.find(x => x.type === 'armor' && x.equipped && x.armor_category !== 'shield')
+    const shield = equipList.find(x => x.type === 'armor' && x.equipped && x.armor_category === 'shield')
+    const dexMod = Math.floor(((charStats.dexterity ?? 10) - 10) / 2)
+    let ac = 10 + dexMod
+    if (armor?.ac_formula) {
+      const v = Number(evalFormula(armor.ac_formula, charStats))
+      if (!isNaN(v) && isFinite(v)) ac = v
+    }
+    if (shield?.ac_formula) {
+      const v = Number(evalFormula(shield.ac_formula, charStats))
+      if (!isNaN(v) && isFinite(v)) ac += v
+    }
+    return ac
+  }
+  function handleEquip(i) {
+    const item     = allEquip[i]
+    const isShield = item.armor_category === 'shield'
+    const willEquip = !item.equipped
+    if (willEquip) {
+      const conflict = allEquip.find((x, idx) =>
+        idx !== i && x.type === 'armor' && x.equipped &&
+        (isShield ? x.armor_category === 'shield' : x.armor_category !== 'shield')
+      )
+      if (conflict) {
+        setEquipModal({ isShield, existingName: conflict.name || 'Unnamed', newName: item.name || 'Unnamed' })
+        return
+      }
+    }
+    const updatedEquip = allEquip.map((x, idx) => idx === i ? { ...x, equipped: willEquip } : x)
+    setValue(`equipment.${i}.equipped`, willEquip, { shouldDirty: true })
+    setValue('armor_class', computeAC(updatedEquip), { shouldDirty: true })
   }
   function handleUseClick(i) {
     setUseModal({ index: i, name: allEquip[i]?.name || 'this item' })
@@ -313,17 +347,31 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           </span>
 
                           {/* Type-specific inline hints */}
-                          {cat.type === 'weapon' && item.attack_modifier && (
-                            <span className="text-stone-500 text-xs shrink-0 hidden sm:block">{evalFormula(item.attack_modifier, charStats)}</span>
-                          )}
-                          {cat.type === 'weapon' && item.damage_roll && (
-                            <span className="text-stone-400 text-xs shrink-0 hidden sm:block">{evalFormula(item.damage_roll, charStats)}</span>
+                          {cat.type === 'weapon' && (item.attack_modifier || item.damage_roll) && (
+                            <span className="text-stone-400 text-xs shrink-0 hidden sm:flex gap-1.5">
+                              {item.attack_modifier && <span><span className="text-stone-500">Att:</span> {evalFormula(item.attack_modifier, charStats)}</span>}
+                              {item.attack_modifier && item.damage_roll && <span className="text-stone-600">·</span>}
+                              {item.damage_roll && <span><span className="text-stone-500">Dmg:</span> {evalFormula(item.damage_roll, charStats)}</span>}
+                            </span>
                           )}
                           {cat.type === 'armor' && item.ac_formula && (
                             <span className="text-stone-400 text-xs shrink-0">AC: {evalFormula(item.ac_formula, charStats)}</span>
                           )}
                           {item.price && <span className="text-stone-500 text-xs shrink-0">{item.price}</span>}
                           {item.amount && <span className="text-stone-400 text-xs shrink-0">×{item.amount}</span>}
+
+                          {/* Equip (armor only) */}
+                          {cat.type === 'armor' && (
+                            <button type="button"
+                              onClick={e => { e.stopPropagation(); if (!readOnly) handleEquip(i) }}
+                              className={`btn btn-sm py-0.5 px-2 text-xs shrink-0 ${
+                                item.equipped
+                                  ? 'bg-blue-900 text-blue-200 border border-blue-700 hover:bg-blue-800'
+                                  : 'btn-secondary text-stone-400'
+                              } ${readOnly ? 'opacity-50 cursor-default' : ''}`}>
+                              {item.equipped ? 'Equipped' : 'Equip'}
+                            </button>
+                          )}
 
                           {/* Attune */}
                           <button type="button"
@@ -368,7 +416,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </span>
                                   )}
                                   {item.attack_modifier && (
-                                    <span className="text-stone-400 text-sm">Hit: <span className="text-stone-200">{evalFormula(item.attack_modifier, charStats)}</span></span>
+                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{evalFormula(item.attack_modifier, charStats)}</span></span>
                                   )}
                                   {item.damage_roll && (
                                     <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{evalFormula(item.damage_roll, charStats)}</span></span>
@@ -434,6 +482,18 @@ export default function EquipmentSection({ control, register, watch, setValue, r
         <ul className="list-disc list-inside space-y-1 mt-1">
           {attuneModal?.names.map((n, i) => <li key={i} className="text-stone-200">{n}</li>)}
         </ul>
+      </Modal>
+
+      <Modal
+        open={!!equipModal}
+        title={equipModal?.isShield ? 'Shield already equipped' : 'Armor already equipped'}
+        onCancel={() => setEquipModal(null)}>
+        <p className="text-stone-300 mt-1">
+          {equipModal?.isShield
+            ? <>Already carrying <strong className="text-stone-100">{equipModal?.existingName}</strong>.<br />Unequip it before equipping <strong className="text-stone-100">{equipModal?.newName}</strong>.</>
+            : <>Already wearing <strong className="text-stone-100">{equipModal?.existingName}</strong>.<br />Remove it before equipping <strong className="text-stone-100">{equipModal?.newName}</strong>.</>
+          }
+        </p>
       </Modal>
     </div>
   )

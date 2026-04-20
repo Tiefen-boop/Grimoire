@@ -12,6 +12,30 @@ function safeEval(expr) {
   return Function('"use strict"; return (' + withMath + ')')()
 }
 
+// Evaluate a single formula segment (no [type] annotations, stats already substituted)
+function evalSegment(expr) {
+  if (!/\d+d\d+/.test(expr)) {
+    try {
+      const val = safeEval(expr)
+      if (typeof val === 'number' && isFinite(val)) return String(val)
+    } catch {}
+    return expr
+  }
+
+  const dice = []
+  const nodie = expr.replace(/\d+d\d+/g, m => { dice.push(m); return '0' })
+  try {
+    const bonus = safeEval(nodie)
+    if (typeof bonus === 'number' && isFinite(bonus)) {
+      const dicePart = dice.join('+')
+      if (bonus > 0) return `${dicePart}+${bonus}`
+      if (bonus < 0) return `${dicePart}${bonus}`
+      return dicePart
+    }
+  } catch {}
+  return expr
+}
+
 export function evalFormula(formula, char) {
   if (!formula || typeof formula !== 'string') return formula ?? ''
 
@@ -28,36 +52,35 @@ export function evalFormula(formula, char) {
   // Normalize D→d
   let expr = formula.trim().replace(/D/g, 'd')
 
-  // Extract bracket annotations (e.g. [slashing]) to re-append later
-  const annotations = []
-  expr = expr.replace(/\[[^\]]*\]/g, m => { annotations.push(m); return '' })
+  // Substitute stat tokens
+  const substitute = s => s.replace(/\b(str|dex|con|int|wis|cha|prof)\b/gi, m => subs[m.toLowerCase()])
 
-  // Substitute stat tokens (word-boundary, case-insensitive)
-  expr = expr.replace(/\b(str|dex|con|int|wis|cha|prof)\b/gi, m => subs[m.toLowerCase()])
+  // No typed segments — evaluate directly
+  if (!expr.includes('[')) return evalSegment(substitute(expr))
 
-  let result
-  if (!/\d+d\d+/.test(expr)) {
-    // Pure arithmetic — evaluate fully
-    try {
-      const val = safeEval(expr)
-      if (typeof val === 'number' && isFinite(val)) result = String(val)
-    } catch {}
-    result = result ?? expr
-  } else {
-    // Has dice — replace each die with 0, evaluate the arithmetic bonus, then reassemble
-    const dice = []
-    const nodie = expr.replace(/\d+d\d+/g, m => { dice.push(m); return '0' })
-    try {
-      const bonus = safeEval(nodie)
-      if (typeof bonus === 'number' && isFinite(bonus)) {
-        const dicePart = dice.join('+')
-        if (bonus > 0) result = `${dicePart}+${bonus}`
-        else if (bonus < 0) result = `${dicePart}${bonus}`
-        else result = dicePart
-      }
-    } catch {}
-    result = result ?? expr
+  // Split into typed segments: each segment is "formula_part[type]"
+  // e.g. "1d8+STR[slashing] + 2d6[fire]"  →  [{f:"1d8+STR", t:"slashing"}, {f:"2d6", t:"fire"}]
+  const segments = []
+  const re = /([^[\]]+)\[([^\]]+)\]/g
+  let lastIndex = 0
+  let m
+
+  while ((m = re.exec(expr)) !== null) {
+    const part = substitute(m[1].replace(/^[\s+]+/, '').trim())
+    if (part) segments.push({ f: part, t: m[2] })
+    lastIndex = re.lastIndex
   }
 
-  return result + annotations.join('')
+  // Any trailing untyped part after the last [type]
+  const tail = substitute(expr.slice(lastIndex).replace(/^[\s+]+/, '').trim())
+  if (tail) segments.push({ f: tail, t: null })
+
+  if (segments.length === 0) return evalSegment(substitute(expr))
+
+  return segments
+    .map(seg => {
+      const result = evalSegment(seg.f)
+      return seg.t ? `${result}[${seg.t}]` : result
+    })
+    .join(' + ')
 }

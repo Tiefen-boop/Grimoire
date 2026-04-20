@@ -108,6 +108,7 @@ export default function CharacterSheet() {
   const [error, setError] = useState('')
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const autoSaveTimer = useRef(null)
+  const savedValuesRef = useRef(null)
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
@@ -127,13 +128,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   }, [featureFields.length])
 
   const watchedFormValues = useWatch({ control })
+  const watchedJson = JSON.stringify(watchedFormValues)
   const handleSubmitRef = useRef(handleSubmit)
   const onSubmitRef = useRef(onSubmit)
   handleSubmitRef.current = handleSubmit
   onSubmitRef.current = onSubmit
 
   useEffect(() => {
-    if (isNew || !isDirty) return
+    if (isNew || savedValuesRef.current === null) return
+    if (savedValuesRef.current === watchedJson) return
     if (readOnly || editingFeatures.size > 0 || equipmentHasEditing) return
     clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => {
@@ -141,7 +144,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }, 1500)
     return () => clearTimeout(autoSaveTimer.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedFormValues, isDirty, editingFeatures.size, equipmentHasEditing])
+  }, [watchedJson, editingFeatures.size, equipmentHasEditing])
 
   function toggleExpandFeature(fieldId) {
     setExpandedFeatures(prev => {
@@ -192,6 +195,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         const data = r.data
         // flatten spell_slots to form-friendly shape
         reset(data)
+        savedValuesRef.current = JSON.stringify(data)
         // check if current user owns it
         if (data.owner_id !== user.id) setReadOnly(true)
       })
@@ -234,9 +238,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         navigate(`/characters/${res.data.id}`, { replace: true })
       } else {
         await api.put(`/characters/${id}`, data)
+        savedValuesRef.current = JSON.stringify(data)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
-        reset(data)
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Save failed')

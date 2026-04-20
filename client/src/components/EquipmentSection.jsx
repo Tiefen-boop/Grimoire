@@ -51,11 +51,15 @@ const CATEGORIES = [
   },
 ]
 
-export default function EquipmentSection({ control, register, watch, setValue, readOnly }) {
+export default function EquipmentSection({ control, register, watch, setValue, readOnly, onEditingChange }) {
   const { fields, append, remove } = useFieldArray({ control, name: 'equipment' })
 
   const [expanded, setExpanded]   = useState(new Set())
   const [editing, setEditing]     = useState(new Set())
+
+  useEffect(() => {
+    onEditingChange?.(editing.size > 0)
+  }, [editing.size])
   const prevLen                   = useRef(0)
   const pendingNewItem            = useRef(false)
 

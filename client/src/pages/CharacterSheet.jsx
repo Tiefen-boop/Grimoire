@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
+import Modal from '../components/Modal'
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -105,19 +106,42 @@ export default function CharacterSheet() {
   const [readOnly, setReadOnly] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
+  const autoSaveTimer = useRef(null)
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
+  const pendingNewFeature = useRef(false)
+  const [useFeatureModal,     setUseFeatureModal]     = useState(null) // { index, name }
+  const [outOfChargesModal,   setOutOfChargesModal]   = useState(null) // { name }
 
   useEffect(() => {
-    if (featureFields.length > prevFeaturesLengthRef.current) {
+    if (pendingNewFeature.current && featureFields.length > prevFeaturesLengthRef.current) {
       const newId = featureFields[featureFields.length - 1].id
       setEditingFeatures(prev => new Set([...prev, newId]))
       setExpandedFeatures(prev => new Set([...prev, newId]))
+      pendingNewFeature.current = false
     }
     prevFeaturesLengthRef.current = featureFields.length
   }, [featureFields.length])
+
+  const watchedFormValues = useWatch({ control })
+  const handleSubmitRef = useRef(handleSubmit)
+  const onSubmitRef = useRef(onSubmit)
+  handleSubmitRef.current = handleSubmit
+  onSubmitRef.current = onSubmit
+
+  useEffect(() => {
+    if (isNew || !isDirty) return
+    if (readOnly || editingFeatures.size > 0 || equipmentHasEditing) return
+    clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = setTimeout(() => {
+      handleSubmitRef.current(onSubmitRef.current)()
+    }, 1500)
+    return () => clearTimeout(autoSaveTimer.current)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedFormValues, isDirty, editingFeatures.size, equipmentHasEditing])
 
   function toggleExpandFeature(fieldId) {
     setExpandedFeatures(prev => {
@@ -141,6 +165,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setEditingFeatures(prev => { const n = new Set(prev); n.delete(fieldId); return n })
     setExpandedFeatures(prev => { const n = new Set(prev); n.delete(fieldId); return n })
     removeFeature(i)
+  }
+  function handleUseFeature(i) {
+    const curr = parseInt(watch(`features_list.${i}.charges_current`)) || 0
+    const name = watch(`features_list.${i}.name`) || 'this feature'
+    if (curr <= 0) { setOutOfChargesModal({ name }); return }
+    setUseFeatureModal({ index: i, name })
+  }
+  function confirmUseFeature() {
+    const { index } = useFeatureModal
+    const curr = parseInt(watch(`features_list.${index}.charges_current`)) || 0
+    setValue(`features_list.${index}.charges_current`, Math.max(0, curr - 1), { shouldDirty: true })
+    setUseFeatureModal(null)
   }
 
   const watchedAbilities = watch(ABILITIES)
@@ -476,16 +512,24 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <Section title="Features" defaultOpen={false}>
         <div className="space-y-1 mb-2">
           {featureFields.map((field, i) => {
-            const isExpanded = expandedFeatures.has(field.id)
-            const isEditing = editingFeatures.has(field.id)
-            const featName = watch(`features_list.${i}.name`)
-            const featDesc = watch(`features_list.${i}.description`)
+            const isExpanded        = expandedFeatures.has(field.id)
+            const isEditing         = editingFeatures.has(field.id)
+            const featName          = watch(`features_list.${i}.name`)
+            const featSource        = watch(`features_list.${i}.source`)
+            const featDesc          = watch(`features_list.${i}.description`)
+            const featHasCharges    = watch(`features_list.${i}.has_charges`)
+            const featChargesCur    = watch(`features_list.${i}.charges_current`)
+            const featChargesMax    = watch(`features_list.${i}.charges_max`)
+            const featChargesRech   = watch(`features_list.${i}.charges_recharge`)
+            const rechLabel = featChargesRech === 'short' ? 'Short Rest' : featChargesRech === 'long' ? 'Long Rest' : null
             return (
               <div key={field.id} className="bg-stone-800 border border-stone-700 rounded-lg overflow-hidden">
                 {isEditing && !readOnly ? (
-                  <div>
-                    <div className="flex gap-2 p-2">
-                      <input {...register(`features_list.${i}.name`)} className="input flex-1 min-w-0" placeholder="Feature name" autoFocus={!featName} />
+                  <div className="p-2 space-y-2">
+                    {/* Name + Source + action buttons */}
+                    <div className="flex gap-2 flex-wrap items-center">
+                      <input {...register(`features_list.${i}.name`)} className="input flex-1 min-w-32" placeholder="Feature name" autoFocus={!featName} />
+                      <input {...register(`features_list.${i}.source`)} className="input w-36" placeholder="Source (e.g. Fighter 2)" />
                       <button type="button" onClick={() => stopEditFeature(field.id)}
                         className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done editing">
                         <CheckIcon className="w-4 h-4" />
@@ -495,24 +539,75 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         <TrashIcon className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="px-2 pb-2">
-                      <textarea
-                        {...register(`features_list.${i}.description`)}
-                        className="input w-full resize-none"
-                        rows={3}
-                        placeholder="Description (optional)"
-                        style={{ whiteSpace: 'pre-wrap' }}
-                      />
+                    {/* Charges */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none">
+                        <input type="checkbox" {...register(`features_list.${i}.has_charges`)} className="accent-red-700 w-4 h-4" />
+                        Has charges
+                      </label>
+                      {featHasCharges && (
+                        <>
+                          <div className="flex items-center gap-1 text-stone-400 text-sm">
+                            <input type="number" min={0}
+                              {...register(`features_list.${i}.charges_current`, {
+                                valueAsNumber: true,
+                                onChange: e => {
+                                  const max = parseInt(watch(`features_list.${i}.charges_max`)) || 0
+                                  const val = parseInt(e.target.value) || 0
+                                  if (val > max) setValue(`features_list.${i}.charges_current`, max, { shouldDirty: true })
+                                }
+                              })}
+                              className="input w-16 text-center" placeholder="0" />
+                            <span>/</span>
+                            <input type="number" min={1}
+                              {...register(`features_list.${i}.charges_max`, {
+                                valueAsNumber: true,
+                                onChange: e => {
+                                  const max = parseInt(e.target.value) || 0
+                                  const cur = parseInt(watch(`features_list.${i}.charges_current`)) || 0
+                                  if (cur > max) setValue(`features_list.${i}.charges_current`, max, { shouldDirty: true })
+                                }
+                              })}
+                              className="input w-16 text-center" placeholder="1" />
+                          </div>
+                          <select {...register(`features_list.${i}.charges_recharge`)} className="input w-36">
+                            <option value="">— recharge —</option>
+                            <option value="short">Short Rest</option>
+                            <option value="long">Long Rest</option>
+                          </select>
+                        </>
+                      )}
                     </div>
+                    {/* Description */}
+                    <textarea {...register(`features_list.${i}.description`)} className="input w-full resize-none"
+                      rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                   </div>
                 ) : (
                   <div>
-                    <div
-                      className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
-                      onClick={() => toggleExpandFeature(field.id)}
-                    >
+                    <div className="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none"
+                      onClick={() => toggleExpandFeature(field.id)}>
                       <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                      <span className="flex-1 text-stone-100 text-sm font-medium truncate">{featName || <span className="text-stone-500 italic">Unnamed feature</span>}</span>
+                      <div className="flex-1 min-w-0 flex items-center gap-1">
+                        <span className="text-stone-100 text-sm font-medium truncate min-w-0">
+                          {featName || <span className="text-stone-500 italic">Unnamed feature</span>}
+                        </span>
+                        {featSource && (
+                          <span className="text-stone-500 text-xs shrink-0">({featSource})</span>
+                        )}
+                      </div>
+                      {featHasCharges && (
+                        <span className="text-stone-400 text-xs shrink-0">{featChargesCur ?? 0}/{featChargesMax ?? 0}</span>
+                      )}
+                      {featHasCharges && rechLabel && (
+                        <span className="text-stone-500 text-xs shrink-0">({rechLabel})</span>
+                      )}
+                      {featHasCharges && !readOnly && (
+                        <button type="button"
+                          onClick={e => { e.stopPropagation(); handleUseFeature(i) }}
+                          className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-purple-300 border-purple-800 hover:bg-purple-900/40">
+                          Use
+                        </button>
+                      )}
                       {!readOnly && (
                         <>
                           <button type="button"
@@ -543,7 +638,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           })}
         </div>
         {!readOnly && (
-          <button type="button" onClick={() => addFeature({ name: '', description: '' })}
+          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '' }) }}
             className="btn btn-secondary btn-sm">
             <PlusIcon className="w-4 h-4 mr-1" /> Add Feature
           </button>
@@ -552,7 +647,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Equipment & Currency */}
       <Section title="Equipment & Currency" defaultOpen={false}>
-        <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly} />
+        <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly} onEditingChange={setEquipmentHasEditing} />
       </Section>
 
       {/* Spellcasting */}
@@ -703,6 +798,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <Section title="Notes" defaultOpen={false}>
         <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
+
+      {/* Feature modals */}
+      <Modal open={!!useFeatureModal} title="Use feature?"
+        onConfirm={confirmUseFeature} onCancel={() => setUseFeatureModal(null)} confirmLabel="Use">
+        Use <strong>{useFeatureModal?.name}</strong>? This will spend 1 charge.
+      </Modal>
+      <Modal open={!!outOfChargesModal} title="No charges remaining" onCancel={() => setOutOfChargesModal(null)}>
+        <strong>{outOfChargesModal?.name}</strong> has no charges remaining.
+      </Modal>
 
       {/* Save button at bottom too */}
       {!readOnly && (

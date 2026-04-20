@@ -35,11 +35,11 @@ const WEAPON_PROPERTIES = [
 const CATEGORIES = [
   {
     type: 'weapon', label: 'Weapons', color: 'text-red-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_type: 'simple-melee', attack_modifier: '', damage_roll: '', properties: [] }),
+    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_type: 'simple-melee', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false }),
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false }),
+    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
   },
   {
     type: 'usable', label: 'Usables', color: 'text-green-400',
@@ -47,7 +47,7 @@ const CATEGORIES = [
   },
   {
     type: 'misc', label: 'Misc', color: 'text-stone-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'misc', attuned: false }),
+    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
   },
 ]
 
@@ -75,10 +75,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   }, [fields.length])
 
   // Modals
-  const [useModal,    setUseModal]    = useState(null)  // { index, name }
-  const [zeroModal,   setZeroModal]   = useState(null)  // { index, name }
-  const [attuneModal, setAttuneModal] = useState(null)  // { names: [] }
-  const [equipModal,  setEquipModal]  = useState(null)  // { isShield, existingName, newName }
+  const [useModal,          setUseModal]          = useState(null)  // { index, name, isCharge? }
+  const [zeroModal,         setZeroModal]         = useState(null)  // { index, name }
+  const [chargesEmptyModal, setChargesEmptyModal] = useState(null)  // { name }
+  const [attuneModal,       setAttuneModal]       = useState(null)  // { names: [] }
+  const [equipModal,        setEquipModal]        = useState(null)  // { isShield, existingName, newName }
 
   // Property add form
   const [propFormFor, setPropFormFor] = useState(null)  // field.id or null
@@ -163,17 +164,30 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     setValue('armor_class', computeAC(updatedEquip), { shouldDirty: true })
   }
   function handleUseClick(i) {
-    setUseModal({ index: i, name: allEquip[i]?.name || 'this item' })
+    setUseModal({ index: i, name: allEquip[i]?.name || 'this item', isCharge: false })
+  }
+  function handleChargeClick(i) {
+    const name = allEquip[i]?.name || 'this item'
+    const curr = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+    if (curr <= 0) { setChargesEmptyModal({ name }); return }
+    setUseModal({ index: i, name, isCharge: true })
   }
   function confirmUse() {
-    const { index } = useModal
-    const next = (parseInt(watch(`equipment.${index}.amount`)) || 0) - 1
+    const { index, isCharge } = useModal
     setUseModal(null)
-    if (next <= 0) {
-      setValue(`equipment.${index}.amount`, '0', { shouldDirty: true })
-      setZeroModal({ index, name: allEquip[index]?.name || 'this item' })
+    if (isCharge) {
+      const curr = parseInt(watch(`equipment.${index}.charges_current`)) || 0
+      const next = Math.max(0, curr - 1)
+      setValue(`equipment.${index}.charges_current`, next, { shouldDirty: true })
+      if (next <= 0) setChargesEmptyModal({ name: allEquip[index]?.name || 'this item' })
     } else {
-      setValue(`equipment.${index}.amount`, String(next), { shouldDirty: true })
+      const next = (parseInt(watch(`equipment.${index}.amount`)) || 0) - 1
+      if (next <= 0) {
+        setValue(`equipment.${index}.amount`, '0', { shouldDirty: true })
+        setZeroModal({ index, name: allEquip[index]?.name || 'this item' })
+      } else {
+        setValue(`equipment.${index}.amount`, String(next), { shouldDirty: true })
+      }
     }
   }
 
@@ -185,7 +199,20 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     const curr = watch(`equipment.${i}.properties`) || []
     if (curr.some(p => p.name === propName)) return
     setValue(`equipment.${i}.properties`, [...curr, { name: propName, extra: propExtra }], { shouldDirty: true })
+    if (propName === 'Finesse') {
+      const swapStrDex = s => (s || '').replace(/\bstr\b/gi, m =>
+        m === m.toUpperCase() ? 'DEX' : m[0] === m[0].toUpperCase() ? 'Dex' : 'dex'
+      )
+      setValue(`equipment.${i}.finesse_attack_modifier`, swapStrDex(watch(`equipment.${i}.attack_modifier`)), { shouldDirty: true })
+      setValue(`equipment.${i}.finesse_damage_roll`,     swapStrDex(watch(`equipment.${i}.damage_roll`)),     { shouldDirty: true })
+    }
     setPropFormFor(null); setPropName(''); setPropExtra('')
+  }
+  function handleFinesse(i) {
+    setValue(`equipment.${i}.finesse_active`, !allEquip[i]?.finesse_active, { shouldDirty: true })
+  }
+  function handleVersatile(i) {
+    setValue(`equipment.${i}.versatile_active`, !allEquip[i]?.versatile_active, { shouldDirty: true })
   }
   function removeProp(i, name) {
     const curr = watch(`equipment.${i}.properties`) || []
@@ -283,6 +310,15 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1 min-w-36"
                                 placeholder="Damage roll (e.g. 1d8+STR[slashing])" />
                             </div>
+                            {props.some(p => p.name === 'Finesse') && (
+                              <div className="flex gap-2 flex-wrap items-center">
+                                <span className="text-xs text-green-400 shrink-0 w-16">Finesse:</span>
+                                <input {...register(`equipment.${i}.finesse_attack_modifier`)} className="input flex-1 min-w-36"
+                                  placeholder="Finesse attack (e.g. DEX+prof)" />
+                                <input {...register(`equipment.${i}.finesse_damage_roll`)} className="input flex-1 min-w-36"
+                                  placeholder="Finesse damage (e.g. 1d8+DEX[slashing])" />
+                              </div>
+                            )}
                             {/* Properties */}
                             <div>
                               <div className="flex flex-wrap gap-1 mb-1 items-center">
@@ -334,6 +370,48 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           </div>
                         )}
 
+                        {/* Charges (non-usable) */}
+                        {cat.type !== 'usable' && (
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none">
+                              <input type="checkbox" {...register(`equipment.${i}.has_charges`)} className="accent-red-700 w-4 h-4" />
+                              Has charges
+                            </label>
+                            {item.has_charges && (
+                              <>
+                                <div className="flex items-center gap-1 text-stone-400 text-sm">
+                                  <input type="number" min={0}
+                                    {...register(`equipment.${i}.charges_current`, {
+                                      valueAsNumber: true,
+                                      onChange: e => {
+                                        const max = parseInt(watch(`equipment.${i}.charges_max`)) || 0
+                                        const val = parseInt(e.target.value) || 0
+                                        if (val > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
+                                      }
+                                    })}
+                                    className="input w-16 text-center" placeholder="0" />
+                                  <span>/</span>
+                                  <input type="number" min={1}
+                                    {...register(`equipment.${i}.charges_max`, {
+                                      valueAsNumber: true,
+                                      onChange: e => {
+                                        const max = parseInt(e.target.value) || 0
+                                        const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                        if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
+                                      }
+                                    })}
+                                    className="input w-16 text-center" placeholder="1" />
+                                </div>
+                                <select {...register(`equipment.${i}.charges_recharge`)} className="input w-36">
+                                  <option value="">— recharge —</option>
+                                  <option value="short">Short Rest</option>
+                                  <option value="long">Long Rest</option>
+                                </select>
+                              </>
+                            )}
+                          </div>
+                        )}
+
                         {/* Description */}
                         <textarea {...register(`equipment.${i}.description`)} className="input w-full resize-none"
                           rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
@@ -342,69 +420,101 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                     ) : (
                     /* ── VIEW MODE ──────────────────────────────────────── */
                       <div>
-                        <div className="flex items-center gap-1.5 px-2 py-2 cursor-pointer select-none"
+                        <div className="flex flex-col px-2 py-2 cursor-pointer select-none"
                           onClick={() => toggleExpand(field.id)}>
-                          <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
 
-                          <span className="flex-1 text-stone-100 text-sm font-medium truncate min-w-0">
-                            {item.name || <span className="text-stone-500 italic">Unnamed</span>}
-                          </span>
-
-                          {/* Type-specific inline hints */}
-                          {cat.type === 'weapon' && (item.attack_modifier || item.damage_roll) && (
-                            <span className="text-stone-400 text-xs shrink-0 hidden sm:flex gap-1.5">
-                              {item.attack_modifier && <span><span className="text-stone-500">Att:</span> {evalFormula(item.attack_modifier, charStats)}</span>}
-                              {item.attack_modifier && item.damage_roll && <span className="text-stone-600">·</span>}
-                              {item.damage_roll && <span><span className="text-stone-500">Dmg:</span> {evalFormula(item.damage_roll, charStats)}</span>}
+                          {/* Primary row: chevron + name + action buttons */}
+                          <div className="flex items-center gap-1.5">
+                            <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                            <span className="flex-1 text-stone-100 text-sm font-medium truncate min-w-0">
+                              {item.name || <span className="text-stone-500 italic">Unnamed</span>}
                             </span>
-                          )}
-                          {cat.type === 'armor' && item.ac_formula && (
-                            <span className="text-stone-400 text-xs shrink-0">AC: {evalFormula(item.ac_formula, charStats)}</span>
-                          )}
-                          {item.price && <span className="text-stone-500 text-xs shrink-0">{item.price}</span>}
-                          {item.amount && <span className="text-stone-400 text-xs shrink-0">×{item.amount}</span>}
 
-                          {/* Equip (armor only) */}
-                          {cat.type === 'armor' && (
-                            <button type="button"
-                              onClick={e => { e.stopPropagation(); if (!readOnly) handleEquip(i) }}
-                              className={`btn btn-sm py-0.5 px-2 text-xs shrink-0 ${
-                                item.equipped
-                                  ? 'bg-blue-900 text-blue-200 border border-blue-700 hover:bg-blue-800'
-                                  : 'btn-secondary text-stone-400'
-                              } ${readOnly ? 'opacity-50 cursor-default' : ''}`}>
-                              {item.equipped ? 'Equipped' : 'Equip'}
-                            </button>
-                          )}
-
-                          {/* Attune */}
-                          <button type="button"
-                            onClick={e => { e.stopPropagation(); handleAttune(i) }}
-                            title={item.attuned ? 'Attuned — click to unattune' : 'Not attuned — click to attune'}
-                            className={`p-1 rounded shrink-0 transition-colors ${item.attuned ? 'text-yellow-400 hover:text-yellow-300' : 'text-stone-600 hover:text-stone-400'}`}>
-                            <SparklesIcon className="w-4 h-4" />
-                          </button>
-
-                          {/* Use button (usables only) */}
-                          {cat.type === 'usable' && !readOnly && (
-                            <button type="button"
-                              onClick={e => { e.stopPropagation(); handleUseClick(i) }}
-                              className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-green-300 border-green-800 hover:bg-green-900/40">
-                              Use
-                            </button>
-                          )}
-
-                          {!readOnly && (
-                            <>
-                              <button type="button" onClick={e => { e.stopPropagation(); startEdit(field.id) }}
-                                className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
-                                <PencilIcon className="w-4 h-4" />
+                            {/* Equip (armor only) */}
+                            {cat.type === 'armor' && (
+                              <button type="button"
+                                onClick={e => { e.stopPropagation(); if (!readOnly) handleEquip(i) }}
+                                className={`btn btn-sm py-0.5 px-2 text-xs shrink-0 ${
+                                  item.equipped
+                                    ? 'bg-blue-900 text-blue-200 border border-blue-700 hover:bg-blue-800'
+                                    : 'btn-secondary text-stone-400'
+                                } ${readOnly ? 'opacity-50 cursor-default' : ''}`}>
+                                {item.equipped ? 'Equipped' : 'Equip'}
                               </button>
-                              <button type="button" onClick={e => { e.stopPropagation(); doRemove(i) }}
-                                className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
-                                <TrashIcon className="w-4 h-4" />
+                            )}
+
+                            {/* Attune */}
+                            <button type="button"
+                              onClick={e => { e.stopPropagation(); handleAttune(i) }}
+                              title={item.attuned ? 'Attuned — click to unattune' : 'Not attuned — click to attune'}
+                              className={`p-1 rounded shrink-0 transition-colors ${item.attuned ? 'text-yellow-400 hover:text-yellow-300' : 'text-stone-600 hover:text-stone-400'}`}>
+                              <SparklesIcon className="w-4 h-4" />
+                            </button>
+
+                            {/* Use button (usables) */}
+                            {cat.type === 'usable' && !readOnly && (
+                              <button type="button"
+                                onClick={e => { e.stopPropagation(); handleUseClick(i) }}
+                                className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-green-300 border-green-800 hover:bg-green-900/40">
+                                Use
                               </button>
-                            </>
+                            )}
+
+                            {/* Charges Use button */}
+                            {cat.type !== 'usable' && item.has_charges && !readOnly && (
+                              <button type="button"
+                                onClick={e => { e.stopPropagation(); handleChargeClick(i) }}
+                                className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-purple-300 border-purple-800 hover:bg-purple-900/40">
+                                Use
+                              </button>
+                            )}
+
+                            {!readOnly && (
+                              <>
+                                <button type="button" onClick={e => { e.stopPropagation(); startEdit(field.id) }}
+                                  className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
+                                  <PencilIcon className="w-4 h-4" />
+                                </button>
+                                <button type="button" onClick={e => { e.stopPropagation(); doRemove(i) }}
+                                  className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Info row: stats, charges, price, amount — wraps on small screens */}
+                          {(
+                            (cat.type === 'weapon' && (item.attack_modifier || item.damage_roll)) ||
+                            (cat.type === 'armor' && item.ac_formula) ||
+                            item.price || item.amount ||
+                            (cat.type !== 'usable' && item.has_charges)
+                          ) && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ml-5 mt-1 text-xs text-stone-400">
+                              {cat.type === 'weapon' && item.attack_modifier && (
+                                <span><span className="text-stone-500">Att:</span> {evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats)}</span>
+                              )}
+                              {cat.type === 'weapon' && item.damage_roll && (() => {
+                                const versatileProp = (item.properties || []).find(p => p.name === 'Versatile')
+                                const effectiveDmg = item.versatile_active && versatileProp?.extra ? versatileProp.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                                return <span><span className="text-stone-500">Dmg:</span> {evalFormula(effectiveDmg, charStats)}</span>
+                              })()}
+                              {cat.type === 'armor' && item.ac_formula && (
+                                <span><span className="text-stone-500">AC:</span> {evalFormula(item.ac_formula, charStats)}</span>
+                              )}
+                              {item.price && <span className="text-stone-500">{item.price}</span>}
+                              {item.amount && <span>×{item.amount}</span>}
+                              {cat.type !== 'usable' && item.has_charges && (
+                                <>
+                                  <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
+                                  {(item.charges_recharge === 'short' || item.charges_recharge === 'long') && (
+                                    <span className="text-stone-500">
+                                      ({item.charges_recharge === 'short' ? 'Short Rest' : 'Long Rest'})
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -420,19 +530,37 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </span>
                                   )}
                                   {item.attack_modifier && (
-                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{evalFormula(item.attack_modifier, charStats)}</span></span>
+                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats)}</span></span>
                                   )}
-                                  {item.damage_roll && (
-                                    <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{evalFormula(item.damage_roll, charStats)}</span></span>
-                                  )}
+                                  {item.damage_roll && (() => {
+                                    const versatileProp = props.find(p => p.name === 'Versatile')
+                                    const effectiveDmg = item.versatile_active && versatileProp?.extra ? versatileProp.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                                    return <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{evalFormula(effectiveDmg, charStats)}</span></span>
+                                  })()}
                                 </div>
                                 {props.length > 0 && (
                                   <div className="flex flex-wrap gap-1">
-                                    {props.map(p => (
-                                      <span key={p.name} className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded">
-                                        {p.extra ? `${p.name} (${p.extra})` : p.name}
-                                      </span>
-                                    ))}
+                                    {props.map(p => {
+                                      if (p.name === 'Finesse') return (
+                                        <button key={p.name} type="button"
+                                          onClick={() => !readOnly && handleFinesse(i)}
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${item.finesse_active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600'} ${readOnly ? 'cursor-default' : 'cursor-pointer hover:opacity-80'}`}>
+                                          {p.extra ? `Finesse (${p.extra})` : 'Finesse'}
+                                        </button>
+                                      )
+                                      if (p.name === 'Versatile') return (
+                                        <button key={p.name} type="button"
+                                          onClick={() => !readOnly && handleVersatile(i)}
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${item.versatile_active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600'} ${readOnly ? 'cursor-default' : 'cursor-pointer hover:opacity-80'}`}>
+                                          {p.extra ? `Versatile (${p.extra})` : 'Versatile'}
+                                        </button>
+                                      )
+                                      return (
+                                        <span key={p.name} className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded">
+                                          {p.extra ? `${p.name} (${p.extra})` : p.name}
+                                        </span>
+                                      )
+                                    })}
                                   </div>
                                 )}
                               </>
@@ -480,6 +608,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
         onCancel={() => setZeroModal(null)}
         confirmLabel="Delete" cancelLabel="Keep at 0">
         <strong>{zeroModal?.name}</strong> has reached 0. Delete it?
+      </Modal>
+
+      <Modal open={!!chargesEmptyModal} title="No charges remaining" onCancel={() => setChargesEmptyModal(null)}>
+        <strong>{chargesEmptyModal?.name}</strong> has no charges remaining.
       </Modal>
 
       <Modal open={!!attuneModal} title="Already attuned to 3 items" onCancel={() => setAttuneModal(null)}>

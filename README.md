@@ -6,7 +6,7 @@ A self-hosted D&D 5e character management web application. Players log in from a
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) v18 or newer
+- [Node.js](https://nodejs.org/) v20 or newer (a `.nvmrc` file is included — run `nvm use` if you use [nvm](https://github.com/nvm-sh/nvm))
 - npm (comes with Node.js)
 
 ---

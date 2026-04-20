@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useFieldArray } from 'react-hook-form'
 import { PlusIcon, TrashIcon, PencilIcon, CheckIcon, ChevronDownIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import Modal from './Modal'
+import { evalFormula } from '../utils/formulaEval'
 
 const WEAPON_TYPES = [
   { value: 'simple-melee',   label: 'Simple Melee' },
@@ -81,6 +82,16 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
   const allEquip    = watch('equipment') || []
   const attunedList = allEquip.map((item, i) => ({ ...item, i })).filter(x => x.attuned)
+
+  const charStats = {
+    strength:          watch('strength'),
+    dexterity:         watch('dexterity'),
+    constitution:      watch('constitution'),
+    intelligence:      watch('intelligence'),
+    wisdom:            watch('wisdom'),
+    charisma:          watch('charisma'),
+    proficiency_bonus: watch('proficiency_bonus'),
+  }
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -303,13 +314,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                           {/* Type-specific inline hints */}
                           {cat.type === 'weapon' && item.attack_modifier && (
-                            <span className="text-stone-500 text-xs shrink-0 hidden sm:block">{item.attack_modifier}</span>
+                            <span className="text-stone-500 text-xs shrink-0 hidden sm:block">{evalFormula(item.attack_modifier, charStats)}</span>
                           )}
                           {cat.type === 'weapon' && item.damage_roll && (
-                            <span className="text-stone-400 text-xs shrink-0 hidden sm:block">{item.damage_roll}</span>
+                            <span className="text-stone-400 text-xs shrink-0 hidden sm:block">{evalFormula(item.damage_roll, charStats)}</span>
                           )}
                           {cat.type === 'armor' && item.ac_formula && (
-                            <span className="text-stone-400 text-xs shrink-0">AC: {item.ac_formula}</span>
+                            <span className="text-stone-400 text-xs shrink-0">AC: {evalFormula(item.ac_formula, charStats)}</span>
                           )}
                           {item.price && <span className="text-stone-500 text-xs shrink-0">{item.price}</span>}
                           {item.amount && <span className="text-stone-400 text-xs shrink-0">×{item.amount}</span>}
@@ -357,10 +368,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </span>
                                   )}
                                   {item.attack_modifier && (
-                                    <span className="text-stone-400 text-sm">Hit: <span className="text-stone-200">{item.attack_modifier}</span></span>
+                                    <span className="text-stone-400 text-sm">Hit: <span className="text-stone-200">{evalFormula(item.attack_modifier, charStats)}</span></span>
                                   )}
                                   {item.damage_roll && (
-                                    <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{item.damage_roll}</span></span>
+                                    <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{evalFormula(item.damage_roll, charStats)}</span></span>
                                   )}
                                 </div>
                                 {props.length > 0 && (
@@ -384,7 +395,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   </span>
                                 )}
                                 {item.ac_formula && (
-                                  <span className="text-stone-400 text-sm">AC: <span className="text-stone-200">{item.ac_formula}</span></span>
+                                  <span className="text-stone-400 text-sm">AC: <span className="text-stone-200">{evalFormula(item.ac_formula, charStats)}</span></span>
                                 )}
                               </div>
                             )}

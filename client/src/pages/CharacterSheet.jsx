@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
@@ -92,6 +92,13 @@ function mod(score) {
 }
 
 const HD_DIE_SIZES = [4, 6, 8, 10, 12, 20]
+
+const WEAPON_TYPES = [
+  { value: 'simple-melee',   label: 'Simple Melee' },
+  { value: 'simple-ranged',  label: 'Simple Ranged' },
+  { value: 'martial-melee',  label: 'Martial Melee' },
+  { value: 'martial-ranged', label: 'Martial Ranged' },
+]
 
 function parseHitDice(str) {
   if (!str) return []
@@ -641,7 +648,6 @@ export default function CharacterSheet() {
     }
   })
 
-  const { fields: attackFields, append: addAttack, remove: removeAttack } = useFieldArray({ control, name: 'attacks' })
   const { fields: classFields,  append: addClass,  remove: removeClass  } = useFieldArray({ control, name: 'classes' })
   const { fields: featureFields, append: addFeature, remove: removeFeature } = useFieldArray({ control, name: 'features_list' })
 
@@ -657,6 +663,7 @@ export default function CharacterSheet() {
   const prevEffectStateRef = useRef(null)
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
+  const [expandedWeapons,  setExpandedWeapons]  = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
   const pendingNewFeature = useRef(false)
@@ -800,14 +807,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   const autoInitBonus = mod(watchedAbilities[1] ?? 10)
 
+  const charStats = {
+    strength: watchedAbilities[0], dexterity: watchedAbilities[1],
+    constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
+    wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
+    proficiency_bonus: watchedProfBonus
+  }
+
   const autoAC = (() => {
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
-    const charStats = {
-      strength: watchedAbilities[0], dexterity: watchedAbilities[1],
-      constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
-      wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
-      proficiency_bonus: watchedProfBonus
-    }
     const body = equipped.filter(i => i.armor_category !== 'shield')
     const shields = equipped.filter(i => i.armor_category === 'shield')
     let base = 10
@@ -1455,44 +1463,129 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Attacks */}
       <Section title="Attacks & Spellcasting" defaultOpen={false}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm mb-2">
-            <thead>
-              <tr className="text-stone-400 text-left">
-                <th className="pb-2 pr-2">Name</th>
-                <th className="pb-2 pr-2">Attack Bonus</th>
-                <th className="pb-2 pr-2">Damage</th>
-                <th className="pb-2 pr-2">Type</th>
-                <th className="pb-2 pr-2">Range</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {attackFields.map((field, i) => (
-                <tr key={field.id}>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.name`)} className="input" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.attack_bonus`)} className="input w-20" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.damage`)} className="input w-20" placeholder="1d6" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.damage_type`)} className="input w-24" placeholder="Slashing" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.range`)} className="input w-20" placeholder="5 ft" disabled={readOnly} /></td>
-                  <td className="pb-1">
-                    {!readOnly && (
-                      <button type="button" onClick={() => removeAttack(i)} className="text-stone-500 hover:text-red-400 p-1">
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!readOnly && (
-            <button type="button" onClick={() => addAttack({ name: '', attack_bonus: '', damage: '', damage_type: '', range: '' })}
-              className="btn btn-secondary btn-sm">
-              <PlusIcon className="w-4 h-4 mr-1" /> Add Attack
-            </button>
-          )}
-        </div>
+        {(() => {
+          const allEquipment = watch('equipment') || []
+          const weapons = allEquipment.map((item, i) => ({ item, i })).filter(({ item }) => item.type === 'weapon')
+
+          if (weapons.length === 0) {
+            return <p className="text-stone-500 text-xs italic px-1">No weapons in equipment.</p>
+          }
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-stone-400 text-xs uppercase tracking-wide border-b border-stone-700">
+                    <th className="pb-2 pr-3 w-5"></th>
+                    <th className="pb-2 pr-3 text-left font-medium">Name</th>
+                    <th className="pb-2 pr-3 text-center font-medium">Attack</th>
+                    <th className="pb-2 pr-3 text-center font-medium">Damage</th>
+                    <th className="pb-2 text-center font-medium">Charges</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weapons.map(({ item, i }) => {
+                    const rangeProp  = (item.properties || []).find(p => p.name === 'Ammunition' || p.name === 'Thrown')
+                    const range      = rangeProp?.extra || null
+                    const atkFormula = item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier
+                    const versatile  = (item.properties || []).find(p => p.name === 'Versatile')
+                    const dmgFormula = item.versatile_active && versatile?.extra ? versatile.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                    const atkValue   = atkFormula ? evalFormula(atkFormula, charStats) : '—'
+                    const dmgValue   = dmgFormula ? evalFormula(dmgFormula, charStats) : '—'
+                    const isExpanded = expandedWeapons.has(i)
+                    const props      = item.properties || []
+
+                    return (
+                      <Fragment key={i}>
+                        <tr className="cursor-pointer select-none hover:bg-stone-800/40 transition-colors border-b border-stone-800"
+                          onClick={() => setExpandedWeapons(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })}>
+                          <td className="py-2 pr-2">
+                            <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span className="text-stone-100 font-medium">{item.name || <span className="text-stone-500 italic">Unnamed</span>}</span>
+                            {range && <span className="text-stone-400 text-xs ml-1.5">({range})</span>}
+                          </td>
+                          <td className="py-2 pr-3 text-center">
+                            <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>
+                          </td>
+                          <td className="py-2 pr-3 text-center">
+                            <span className="text-stone-100 font-bold text-base">{dmgValue}</span>
+                          </td>
+                          <td className="py-2 text-center" onClick={e => e.stopPropagation()}>
+                            {item.has_charges ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className="text-stone-400 tabular-nums text-xs">{item.charges_current ?? 0}/{item.charges_max ?? 0}</span>
+                                {!readOnly && (
+                                  <button type="button"
+                                    onClick={() => {
+                                      const curr = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                      if (curr <= 0) { setOutOfChargesModal({ name: item.name || 'this weapon' }); return }
+                                      setValue(`equipment.${i}.charges_current`, curr - 1, { shouldDirty: true })
+                                    }}
+                                    className="btn btn-secondary btn-sm py-0.5 px-2 text-xs text-purple-300 border-purple-800 hover:bg-purple-900/40">
+                                    Use
+                                  </button>
+                                )}
+                              </div>
+                            ) : <span className="text-stone-600">—</span>}
+                          </td>
+                        </tr>
+
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={5} className="pb-3 pt-1 px-1">
+                              <div className="bg-stone-800 border border-stone-700 rounded-lg px-3 py-2 space-y-2">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                  {item.weapon_type && (
+                                    <span className="text-xs bg-red-950 text-red-300 border border-red-900 px-2 py-0.5 rounded">
+                                      {WEAPON_TYPES.find(t => t.value === item.weapon_type)?.label}
+                                    </span>
+                                  )}
+                                  {atkFormula && <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{atkValue}</span></span>}
+                                  {dmgFormula && <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{dmgValue}</span></span>}
+                                </div>
+                                {props.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {props.map(p => {
+                                      if (p.name === 'Finesse') return (
+                                        <button key={p.name} type="button"
+                                          onClick={() => !readOnly && setValue(`equipment.${i}.finesse_active`, !item.finesse_active, { shouldDirty: true })}
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${item.finesse_active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600'} ${readOnly ? 'cursor-default' : 'cursor-pointer hover:opacity-80'}`}>
+                                          {p.extra ? `Finesse (${p.extra})` : 'Finesse'}
+                                        </button>
+                                      )
+                                      if (p.name === 'Versatile') return (
+                                        <button key={p.name} type="button"
+                                          onClick={() => !readOnly && setValue(`equipment.${i}.versatile_active`, !item.versatile_active, { shouldDirty: true })}
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${item.versatile_active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600'} ${readOnly ? 'cursor-default' : 'cursor-pointer hover:opacity-80'}`}>
+                                          {p.extra ? `Versatile (${p.extra})` : 'Versatile'}
+                                        </button>
+                                      )
+                                      return (
+                                        <span key={p.name} className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded">
+                                          {p.extra ? `${p.name} (${p.extra})` : p.name}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                                {item.description
+                                  ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                  : <p className="text-stone-500 text-sm italic">No description.</p>
+                                }
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
       </Section>
 
       {/* Features */}

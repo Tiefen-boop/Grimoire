@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
+import { evalFormula } from '../utils/formulaEval'
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -464,6 +465,7 @@ export default function CharacterSheet() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
+  const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
   const autoSaveTimer = useRef(null)
   const savedValuesRef = useRef(null)
 
@@ -585,6 +587,36 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchedProfBonus  = watch('proficiency_bonus') ?? 0
   const allClasses        = watch('classes') || []
 
+  const watchedMaxHp  = watch('max_hp')     ?? 0
+  const watchedCurrHp = watch('current_hp') ?? 0
+  const watchedTempHp = watch('temp_hp')    ?? 0
+  const safeMax       = watchedMaxHp > 0 ? watchedMaxHp : 1
+  const tempOverflow  = watchedTempHp >= watchedMaxHp && watchedMaxHp > 0
+  const hpBarWidthPct = tempOverflow ? (watchedMaxHp / watchedTempHp) * 100 : 100
+  const redFillPct    = Math.min(watchedCurrHp, watchedMaxHp) / safeMax * hpBarWidthPct
+  const greenFillPct  = Math.min(watchedTempHp / safeMax, 1) * 100
+
+  const autoInitBonus = mod(watchedAbilities[1] ?? 10)
+
+  const autoAC = (() => {
+    const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
+    const charStats = {
+      strength: watchedAbilities[0], dexterity: watchedAbilities[1],
+      constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
+      wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
+      proficiency_bonus: watchedProfBonus
+    }
+    const body = equipped.filter(i => i.armor_category !== 'shield')
+    const shields = equipped.filter(i => i.armor_category === 'shield')
+    let base = 10
+    if (body.length > 0) {
+      const acs = body.map(i => parseFloat(evalFormula(i.ac_formula, charStats)) || 0)
+      base = Math.max(...acs)
+    }
+    const shieldBonus = shields.reduce((sum, i) => sum + (parseFloat(evalFormula(i.ac_formula, charStats)) || 0), 0)
+    return base + shieldBonus
+  })()
+
   // Auto-calculate proficiency bonus: 2 + floor((totalLevel - 1) / 4)
   useEffect(() => {
     const total = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
@@ -601,7 +633,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         // flatten spell_slots to form-friendly shape
         reset(data)
         savedValuesRef.current = JSON.stringify(data)
-        // check if current user owns it
+        setTempHpDisplayStr(data.temp_hp > 0 ? String(data.temp_hp) : '')
         if (data.owner_id !== user.id) setReadOnly(true)
       })
       .catch(() => navigate('/characters'))
@@ -898,21 +930,124 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Combat */}
       <Section title="Combat">
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
-          {[
-            { label: 'AC', name: 'armor_class' },
-            { label: 'Initiative', name: 'initiative_bonus' },
-            { label: 'Speed', name: 'speed' },
-            { label: 'Max HP', name: 'max_hp' },
-            { label: 'Current HP', name: 'current_hp' },
-            { label: 'Temp HP', name: 'temp_hp' },
-          ].map(f => (
-            <div key={f.name} className="stat-box">
-              <div className="label text-xs text-center">{f.label}</div>
-              <input type="number" {...register(f.name, { valueAsNumber: true })}
-                className="input text-center text-lg font-bold p-1" disabled={readOnly} />
+        <div className="flex flex-wrap gap-3 items-end mb-4">
+
+          {/* HP + Temp HP bars */}
+          <div className="w-full sm:flex-1 flex flex-col gap-1">
+            {/* HP Bar */}
+            <div className="relative h-12 rounded-lg overflow-hidden bg-stone-900">
+              <div className="absolute inset-y-0 left-0 bg-red-700 transition-all duration-200 rounded-lg"
+                style={{ width: `${redFillPct}%` }} />
+              <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
+                <span className="text-red-200 font-semibold text-sm select-none">HP</span>
+                <input type="number"
+                  {...register('current_hp', {
+                    valueAsNumber: true,
+                    onChange: e => {
+                      const raw = e.target.value
+                      if (raw === '') { setValue('current_hp', 0, { shouldDirty: true }); return }
+                      const val = parseInt(raw)
+                      const max = parseInt(watch('max_hp')) || 0
+                      if (isNaN(val) || val < 0) setValue('current_hp', 0, { shouldDirty: true })
+                      else if (val > max) setValue('current_hp', max, { shouldDirty: true })
+                    }
+                  })}
+                  className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-right w-12 focus:outline-none font-sans"
+                  disabled={readOnly} />
+                <span className="text-stone-400 font-bold text-lg select-none">/</span>
+                <input type="number"
+                  {...register('max_hp', {
+                    valueAsNumber: true,
+                    onChange: e => {
+                      const raw = e.target.value
+                      if (raw === '') { setValue('max_hp', 0, { shouldDirty: true }); setValue('current_hp', 0, { shouldDirty: true }); return }
+                      const newMax = parseInt(raw) || 0
+                      const curr = parseInt(watch('current_hp')) || 0
+                      if (curr > newMax) setValue('current_hp', newMax, { shouldDirty: true })
+                    }
+                  })}
+                  className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-left w-12 focus:outline-none font-sans"
+                  disabled={readOnly} />
+              </div>
             </div>
-          ))}
+
+            {/* Temp HP Bar */}
+            <div className="relative h-10 rounded overflow-hidden bg-stone-900">
+              <div className="absolute inset-y-0 left-0 bg-green-700 transition-all duration-200 rounded"
+                style={{ width: `${greenFillPct}%` }} />
+              <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
+                {tempHpDisplayStr !== '' && (
+                  <span className="text-green-200 font-semibold text-xs select-none">Temp HP</span>
+                )}
+                <input type="number"
+                  value={tempHpDisplayStr}
+                  placeholder={tempHpDisplayStr === '' ? 'Temp HP' : ''}
+                  onChange={e => {
+                    const str = e.target.value
+                    if (str === '') {
+                      setTempHpDisplayStr('')
+                      setValue('temp_hp', 0, { shouldDirty: true })
+                    } else {
+                      const val = Math.max(0, parseInt(str) || 0)
+                      setTempHpDisplayStr(String(val))
+                      setValue('temp_hp', val, { shouldDirty: true })
+                    }
+                  }}
+                  className="no-spinner bg-transparent text-stone-100 text-sm font-bold text-center w-16 focus:outline-none font-sans placeholder:text-stone-500"
+                  disabled={readOnly} />
+              </div>
+            </div>
+          </div>
+
+          {/* AC / Speed / Initiative */}
+          <div className="flex gap-3 items-end">
+
+            {/* AC — Shield */}
+            <div className="relative flex items-center justify-center" style={{ width: 76, height: 86 }}>
+              <svg viewBox="0 0 76 86" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                <path d="M4,4 L72,4 L72,46 L38,82 L4,46 Z"
+                  fill="#292524" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+              <div className="relative z-10 flex flex-col items-center" style={{ paddingBottom: 18 }}>
+                <span className="label text-xs text-center select-none">AC</span>
+                <input type="number"
+                  {...register('armor_class', {
+                    valueAsNumber: true,
+                    onBlur: e => {
+                      if (e.target.value === '') setValue('armor_class', autoAC, { shouldDirty: true })
+                    }
+                  })}
+                  placeholder={String(autoAC)}
+                  className="no-spinner bg-transparent text-stone-100 font-bold text-2xl text-center w-12 focus:outline-none font-sans placeholder:text-stone-500"
+                  disabled={readOnly} />
+              </div>
+            </div>
+
+            {/* Speed */}
+            <div className="stat-box flex flex-col items-center justify-center" style={{ minWidth: 72, height: 86 }}>
+              <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾</div>
+              <input type="number"
+                {...register('speed', { valueAsNumber: true })}
+                className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1"
+                disabled={readOnly} />
+            </div>
+
+            {/* Initiative */}
+            <div className="stat-box flex flex-col items-center justify-center" style={{ minWidth: 72, height: 86 }}>
+              <div className="label text-xs text-center">Initiative</div>
+              <input type="number"
+                {...register('initiative_bonus', {
+                  valueAsNumber: true,
+                  onBlur: e => {
+                    if (e.target.value === '') setValue('initiative_bonus', autoInitBonus, { shouldDirty: true })
+                  }
+                })}
+                placeholder={autoInitBonus >= 0 ? `+${autoInitBonus}` : String(autoInitBonus)}
+                className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1 placeholder:text-stone-500"
+                disabled={readOnly} />
+            </div>
+
+          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">

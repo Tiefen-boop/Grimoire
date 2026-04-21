@@ -11,6 +11,15 @@ const WEAPON_TYPES = [
   { value: 'martial-ranged', label: 'Martial Ranged' },
 ]
 
+const WEAPON_CLASS    = [{ value: 'simple', label: 'Simple' }, { value: 'martial', label: 'Martial' }]
+const WEAPON_RANGE    = [{ value: 'melee',  label: 'Melee'  }, { value: 'ranged',  label: 'Ranged'  }]
+const WEAPON_SPECIFIC = {
+  'simple-melee':  ['Club', 'Dagger', 'Greatclub', 'Handaxe', 'Javelin', 'Light Hammer', 'Mace', 'Quarterstaff', 'Sickle', 'Spear'],
+  'simple-ranged': ['Light Crossbow', 'Dart', 'Shortbow', 'Sling'],
+  'martial-melee': ['Battleaxe', 'Flail', 'Glaive', 'Greataxe', 'Greatsword', 'Halberd', 'Lance', 'Longsword', 'Maul', 'Morningstar', 'Pike', 'Rapier', 'Scimitar', 'Shortsword', 'Trident', 'War Pick', 'Warhammer', 'Whip'],
+  'martial-ranged': ['Blowgun', 'Hand Crossbow', 'Heavy Crossbow', 'Longbow', 'Net'],
+}
+
 const ARMOR_CATEGORIES = [
   { value: 'light',   label: 'Light Armor' },
   { value: 'medium',  label: 'Medium Armor' },
@@ -35,7 +44,7 @@ const WEAPON_PROPERTIES = [
 const CATEGORIES = [
   {
     type: 'weapon', label: 'Weapons', color: 'text-red-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_type: 'simple-melee', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false }),
+    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false }),
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
@@ -302,9 +311,24 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         {cat.type === 'weapon' && (
                           <div className="space-y-2">
                             <div className="flex gap-2 flex-wrap">
-                              <select {...register(`equipment.${i}.weapon_type`)} className="input w-40">
-                                {WEAPON_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                              <select {...register(`equipment.${i}.weapon_class`, {
+                                onChange: () => setValue(`equipment.${i}.weapon_specific`, '', { shouldDirty: true })
+                              })} className="input w-28">
+                                {WEAPON_CLASS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                               </select>
+                              <select {...register(`equipment.${i}.weapon_range`, {
+                                onChange: () => setValue(`equipment.${i}.weapon_specific`, '', { shouldDirty: true })
+                              })} className="input w-28">
+                                {WEAPON_RANGE.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                              </select>
+                              <select {...register(`equipment.${i}.weapon_specific`)} className="input w-44">
+                                <option value="">— type —</option>
+                                {(WEAPON_SPECIFIC[`${item.weapon_class || 'simple'}-${item.weapon_range || 'melee'}`] || []).map(w => (
+                                  <option key={w} value={w}>{w}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
                               <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1 min-w-36"
                                 placeholder="Attack modifier (e.g. STR+prof)" />
                               <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1 min-w-36"
@@ -524,9 +548,16 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             {cat.type === 'weapon' && (
                               <>
                                 <div className="flex flex-wrap gap-2 items-center">
-                                  {item.weapon_type && (
+                                  {(item.weapon_class || item.weapon_type) && (
                                     <span className="text-xs bg-red-950 text-red-300 border border-red-900 px-2 py-0.5 rounded">
-                                      {WEAPON_TYPES.find(t => t.value === item.weapon_type)?.label}
+                                      {item.weapon_class
+                                        ? `${item.weapon_class === 'simple' ? 'Simple' : 'Martial'} ${item.weapon_range === 'ranged' ? 'Ranged' : 'Melee'}`
+                                        : WEAPON_TYPES.find(t => t.value === item.weapon_type)?.label}
+                                    </span>
+                                  )}
+                                  {item.weapon_specific && (
+                                    <span className="text-xs bg-stone-700 text-stone-300 border border-stone-600 px-2 py-0.5 rounded">
+                                      {item.weapon_specific}
                                     </span>
                                   )}
                                   {item.attack_modifier && (

@@ -93,12 +93,10 @@ function mod(score) {
 
 const HD_DIE_SIZES = [4, 6, 8, 10, 12, 20]
 
-const WEAPON_TYPES = [
-  { value: 'simple-melee',   label: 'Simple Melee' },
-  { value: 'simple-ranged',  label: 'Simple Ranged' },
-  { value: 'martial-melee',  label: 'Martial Melee' },
-  { value: 'martial-ranged', label: 'Martial Ranged' },
-]
+const WEAPON_TYPES = {
+  'simple-melee': 'Simple Melee', 'simple-ranged': 'Simple Ranged',
+  'martial-melee': 'Martial Melee', 'martial-ranged': 'Martial Ranged',
+}
 
 function parseHitDice(str) {
   if (!str) return []
@@ -1537,13 +1535,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             <td colSpan={5} className="pb-3 pt-1 px-1">
                               <div className="bg-stone-800 border border-stone-700 rounded-lg px-3 py-2 space-y-2">
                                 <div className="flex flex-wrap gap-2 items-center">
-                                  {item.weapon_type && (
+                                  {(item.weapon_class || item.weapon_type) && (
                                     <span className="text-xs bg-red-950 text-red-300 border border-red-900 px-2 py-0.5 rounded">
-                                      {WEAPON_TYPES.find(t => t.value === item.weapon_type)?.label}
+                                      {item.weapon_class
+                                        ? `${item.weapon_class === 'simple' ? 'Simple' : 'Martial'} ${item.weapon_range === 'ranged' ? 'Ranged' : 'Melee'}`
+                                        : WEAPON_TYPES[item.weapon_type]}
                                     </span>
                                   )}
-                                  {atkFormula && <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{atkValue}</span></span>}
-                                  {dmgFormula && <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{dmgValue}</span></span>}
+                                  {item.weapon_specific && (
+                                    <span className="text-xs bg-stone-700 text-stone-300 border border-stone-600 px-2 py-0.5 rounded">
+                                      {item.weapon_specific}
+                                    </span>
+                                  )}
                                 </div>
                                 {props.length > 0 && (
                                   <div className="flex flex-wrap gap-1">

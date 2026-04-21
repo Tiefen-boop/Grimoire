@@ -84,6 +84,8 @@ function NumberInput({ label, name, register, small }) {
   )
 }
 
+const SPELL_SCHOOLS = ['Abjuration','Conjuration','Divination','Enchantment','Evocation','Illusion','Necromancy','Transmutation']
+
 function SpellcastingBlock({ classIndex, castingAbility, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
   const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
@@ -115,7 +117,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   }
   function addSpellAtLevel(lvl) {
     pendingNewSpell.current = true
-    addSpell({ level: lvl, name: '', cast_time: '', range: '', prepared: false, description: '' })
+    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
   }
   function startEditSpell(fieldId) { setEditingSpells(prev => new Set([...prev, fieldId])) }
@@ -207,20 +209,24 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                     const isEditingSpell  = editingSpells.has(field.id)
                     const isExpandedSpell = expandedSpells.has(field.id)
                     const sp = allSpells[i] || {}
+
+                    // Build components string for display
+                    const compParts = [sp.comp_v && 'V', sp.comp_s && 'S', sp.comp_m && 'M'].filter(Boolean)
+                    const compDisplay = compParts.length > 0
+                      ? compParts.join(', ') + (sp.comp_m && sp.comp_m_text ? ` (${sp.comp_m_text})` : '')
+                      : null
+
+                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description
+
                     return (
                       <div key={field.id}>
                         {isEditingSpell && !readOnly ? (
-                          <div className="px-3 py-2 space-y-1.5">
+                          <div className="px-3 py-2 space-y-2">
+                            {/* Row 1: name, cast time, range + action buttons */}
                             <div className="flex gap-2 flex-wrap items-center">
                               <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
                               <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input w-28" placeholder="Cast time" />
                               <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input w-24" placeholder="Range" />
-                              {lvl > 0 && (
-                                <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
-                                  <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
-                                  Prepared
-                                </label>
-                              )}
                               <button type="button" onClick={() => stopEditSpell(field.id)}
                                 className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <CheckIcon className="w-4 h-4" />
@@ -230,20 +236,59 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                                 <TrashIcon className="w-4 h-4" />
                               </button>
                             </div>
+                            {/* Row 2: school, duration, prepared, ritual */}
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input w-40">
+                                <option value="">— School —</option>
+                                {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                              <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input w-32" placeholder="Duration" />
+                              {lvl > 0 && (
+                                <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
+                                  <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
+                                  Prepared
+                                </label>
+                              )}
+                              <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
+                                <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.ritual`)} className="accent-stone-500" />
+                                Ritual
+                              </label>
+                            </div>
+                            {/* Row 3: components */}
+                            <div className="flex gap-3 flex-wrap items-center">
+                              <span className="text-xs text-stone-400">Components:</span>
+                              {['V','S','M'].map(comp => (
+                                <label key={comp} className="flex items-center gap-1 text-xs text-stone-400 cursor-pointer">
+                                  <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.comp_${comp.toLowerCase()}`)} className="accent-stone-500" />
+                                  {comp}
+                                </label>
+                              ))}
+                              {sp.comp_m && (
+                                <input {...register(`classes.${classIndex}.spells.${i}.comp_m_text`)} className="input flex-1 min-w-40 text-sm" placeholder="Material components" />
+                              )}
+                            </div>
+                            {/* Row 4: description */}
                             <textarea {...register(`classes.${classIndex}.spells.${i}.description`)} className="input w-full resize-none text-sm"
                               rows={2} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                           </div>
                         ) : (
                           <div>
+                            {/* View mode header row */}
                             <div className="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none"
                               onClick={() => toggleExpandSpell(field.id)}>
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
-                              <span className="text-stone-100 text-sm flex-1 truncate min-w-0">
+                              <span className="text-stone-100 text-sm truncate min-w-0">
                                 {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
                               </span>
-                              {lvl > 0 && sp.prepared && (
-                                <span className="text-xs bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded shrink-0">Prep</span>
+                              {sp.ritual && <span className="text-stone-500 text-xs shrink-0 italic">(ritual)</span>}
+                              {lvl > 0 && (
+                                <button type="button"
+                                  onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
+                                  className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
+                                  Prep
+                                </button>
                               )}
+                              <span className="flex-1" />
                               {sp.cast_time && <span className="text-xs text-stone-500 shrink-0">{sp.cast_time}</span>}
                               {sp.range && <span className="text-xs text-stone-500 shrink-0">{sp.range}</span>}
                               {!readOnly && (
@@ -259,9 +304,21 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                                 </>
                               )}
                             </div>
-                            {isExpandedSpell && sp.description && (
-                              <div className="px-4 pb-2 border-t border-stone-700/40 pt-1.5">
-                                <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                            {/* Expanded content */}
+                            {isExpandedSpell && hasExpandedContent && (
+                              <div className="px-4 pb-3 border-t border-stone-700/40 pt-2 space-y-1.5">
+                                {sp.school && (
+                                  <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>
+                                )}
+                                {compDisplay && (
+                                  <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>
+                                )}
+                                {sp.duration && (
+                                  <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
+                                )}
+                                {sp.description && (
+                                  <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                                )}
                               </div>
                             )}
                           </div>

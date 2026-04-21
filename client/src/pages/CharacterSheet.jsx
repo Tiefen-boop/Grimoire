@@ -49,7 +49,43 @@ const SPELL_LEVEL_COLORS = [
   { label: '8th Level', ring: 'border-orange-700',   header: 'bg-orange-950',   text: 'text-orange-300'  },
   { label: '9th Level', ring: 'border-amber-600',    header: 'bg-amber-950',    text: 'text-amber-300'   },
 ]
-const CONDITIONS = ['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious']
+const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious']
+const EXHAUSTION_DOT_COLORS = [
+  null,
+  { on: 'bg-yellow-400 border-yellow-300',   off: 'border-stone-600 hover:border-yellow-700' },
+  { on: 'bg-orange-400 border-orange-300',   off: 'border-stone-600 hover:border-orange-700' },
+  { on: 'bg-orange-600 border-orange-500',   off: 'border-stone-600 hover:border-orange-600' },
+  { on: 'bg-red-600   border-red-500',       off: 'border-stone-600 hover:border-red-600'    },
+  { on: 'bg-red-800   border-red-700',       off: 'border-stone-600 hover:border-red-700'    },
+  { on: 'bg-stone-950 border-red-900',       off: 'border-stone-600 hover:border-red-900'    },
+]
+const EXHAUSTION_EFFECTS = [
+  null,
+  'Level 1 — Disadvantage on all ability checks.',
+  'Level 2 — Speed halved. (+ all prior effects)',
+  'Level 3 — Disadvantage on attack rolls and saving throws. (+ all prior effects)',
+  'Level 4 — Hit point maximum halved. (+ all prior effects)',
+  'Level 5 — Speed reduced to 0. (+ all prior effects)',
+  'Level 6 — Death.',
+]
+
+const CONDITION_DESC = {
+  Blinded:       "Can't see. Attacks against you have advantage; your attacks have disadvantage. You automatically fail sight-based checks.",
+  Charmed:       "Can't attack the charmer or target them with harmful abilities/spells. The charmer has advantage on social checks against you.",
+  Deafened:      "Can't hear. Automatically fail hearing-based checks.",
+  Exhaustion:    "Cumulative levels (1–6) impose penalties: disadvantage on ability checks (1), halved speed (2), disadvantage on attacks & saves (3), halved HP max (4), speed 0 (5). At 6 you die.",
+  Frightened:    "Disadvantage on ability checks and attacks while you can see the source of fear. Can't willingly move closer to the source.",
+  Grappled:      "Speed becomes 0. Ends if the grappler is incapacitated, or if you're moved out of reach.",
+  Incapacitated: "Can't take actions or reactions.",
+  Invisible:     "Can't be seen without magic. Attacks against you have disadvantage; your attacks have advantage.",
+  Paralyzed:     "Incapacitated, can't move or speak. Auto-fail STR & DEX saves. Attacks against you have advantage. Any hit from within 5 ft is a critical hit.",
+  Petrified:     "Transformed into solid matter. Incapacitated, speed 0, unaware of surroundings. Resistance to all damage. Immune to poison and disease.",
+  Poisoned:      "Disadvantage on attack rolls and ability checks.",
+  Prone:         "Disadvantage on attacks. Attackers within 5 ft have advantage; others have disadvantage. Standing up costs half your speed.",
+  Restrained:    "Speed becomes 0. Attacks against you have advantage; your attacks have disadvantage. Disadvantage on DEX saves.",
+  Stunned:       "Incapacitated, can't move, can only speak falteringly. Auto-fail STR & DEX saves. Attacks against you have advantage.",
+  Unconscious:   "Incapacitated, can't move or speak, unaware of surroundings. Drop everything, fall prone. Auto-fail STR & DEX saves. Attacks have advantage; hits within 5 ft are crits.",
+}
 
 function mod(score) {
   return Math.floor((score - 10) / 2)
@@ -67,7 +103,7 @@ function parseHitDice(str) {
 
 function stringifyHitDice(dice) {
   return dice.filter(d => d.count > 0)
-    .sort((a, b) => b.size - a.size)
+    .sort((a, b) => a.size - b.size)
     .map(d => `${d.count}d${d.size}`)
     .join('+')
 }
@@ -83,7 +119,7 @@ function computeHitDice(classes) {
     if (count > 0) counts[size] = (counts[size] || 0) + count
   }
   return Object.entries(counts)
-    .sort(([a], [b]) => parseInt(b) - parseInt(a))
+    .sort(([a], [b]) => parseInt(a) - parseInt(b))
     .map(([s, c]) => `${c}d${s}`)
     .join('+')
 }
@@ -95,6 +131,22 @@ function cleanHitDiceInput(str) {
     const m = s.trim().match(/^(\d+)[dD](\d+)$/)
     return m && parseInt(m[1]) > 0 && parseInt(m[2]) > 0 ? `${m[1]}d${m[2]}` : null
   }).filter(Boolean).join('+')
+}
+
+const CONDITION_CHAINS = {
+  Paralyzed:   ['Incapacitated'],
+  Petrified:   ['Incapacitated'],
+  Stunned:     ['Incapacitated'],
+  Unconscious: ['Incapacitated', 'Prone'],
+}
+
+const SPEED_ZERO_CONDITIONS = new Set(['Grappled', 'Paralyzed', 'Petrified', 'Restrained', 'Stunned', 'Unconscious'])
+
+function computeEffectiveSpeed(base, conditions, exhaustion) {
+  if (conditions.some(c => SPEED_ZERO_CONDITIONS.has(c))) return 0
+  if (exhaustion >= 5) return 0
+  if (exhaustion >= 2) return Math.floor(base / 2)
+  return base
 }
 function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
@@ -470,6 +522,128 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   )
 }
 
+function ExhaustionBlock({ watch, setValue, readOnly }) {
+  const [tooltip, setTooltip] = useState(null)
+  const exhaustion = watch('exhaustion') ?? 0
+
+  return (
+    <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
+      <div className="label text-xs">Exhaustion</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {[1,2,3,4,5,6].map(j => {
+          const isActive = exhaustion >= j
+          const colors   = EXHAUSTION_DOT_COLORS[j]
+          return (
+            <button key={j} type="button"
+              onClick={() => !readOnly && setValue('exhaustion', exhaustion >= j ? j - 1 : j, { shouldDirty: true })}
+              onMouseMove={e => setTooltip({ level: j, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setTooltip(null)}
+              className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors text-sm ${
+                isActive ? colors.on : `bg-transparent ${colors.off}`
+              }`}
+              disabled={readOnly}
+            >
+              {j === 6 && isActive && (
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-red-400">
+                  <path d="M12 2a7 7 0 0 0-7 7c0 2.56 1.37 4.8 3.42 6.03L8 17h8l-.42-1.97A7.001 7.001 0 0 0 12 2ZM9 17v1a1 1 0 0 0 1 1h1v1h2v-1h1a1 1 0 0 0 1-1v-1H9Z"/>
+                </svg>
+              )}
+            </button>
+          )
+        })}
+        {exhaustion > 0 && (
+          <span className="text-stone-500 text-xs ml-1">Lvl {exhaustion}</span>
+        )}
+      </div>
+
+      {tooltip && (
+        <div className="fixed z-50 pointer-events-none max-w-xs bg-stone-900 border border-stone-600 rounded-lg px-3 py-2 shadow-xl text-xs text-stone-300 leading-relaxed"
+          style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}>
+          <div className="font-semibold text-stone-100 mb-1">Exhaustion</div>
+          {EXHAUSTION_EFFECTS[tooltip.level]}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConditionsBlock({ watch, readOnly, onToggle }) {
+  const [tooltip, setTooltip]       = useState(null)   // { name, x, y } for mouse tooltip
+  const [popup, setPopup]           = useState(null)   // condition name for mobile popup
+  const longPressTimer              = useRef(null)
+  const activeConditions            = watch('conditions') || []
+
+  function onMouseMove(e, name) {
+    setTooltip({ name, x: e.clientX, y: e.clientY })
+  }
+  function onMouseLeave() { setTooltip(null) }
+
+  function onTouchStart(e, name) {
+    longPressTimer.current = setTimeout(() => {
+      e.preventDefault()
+      setPopup(name)
+    }, 500)
+  }
+  function onTouchEnd() {
+    clearTimeout(longPressTimer.current)
+  }
+
+  return (
+    <div>
+      <div className="label mb-2">Conditions</div>
+      <div className="flex flex-wrap gap-2">
+        {CONDITIONS.map(c => {
+          const active = activeConditions.includes(c)
+          return (
+            <button
+              key={c} type="button"
+              onClick={() => onToggle(c)}
+              onMouseMove={e => onMouseMove(e, c)}
+              onMouseLeave={onMouseLeave}
+              onTouchStart={e => onTouchStart(e, c)}
+              onTouchEnd={onTouchEnd}
+              onTouchMove={onTouchEnd}
+              className={`px-2 py-1 rounded text-xs font-medium border transition-colors select-none ${
+                active
+                  ? 'bg-red-900 border-red-700 text-red-100'
+                  : 'bg-stone-800 border-stone-600 text-stone-400 hover:border-stone-500'
+              }`}
+              disabled={readOnly}
+            >
+              {c}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Mouse-follow tooltip (desktop only) */}
+      {tooltip && (
+        <div
+          className="fixed z-50 pointer-events-none max-w-xs bg-stone-900 border border-stone-600 rounded-lg px-3 py-2 shadow-xl text-xs text-stone-300 leading-relaxed"
+          style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}
+        >
+          <div className="font-semibold text-stone-100 mb-1">{tooltip.name}</div>
+          {CONDITION_DESC[tooltip.name]}
+        </div>
+      )}
+
+      {/* Long-press popup (mobile) */}
+      {popup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60"
+          onClick={() => setPopup(null)}>
+          <div className="bg-stone-900 border border-stone-600 rounded-xl p-5 max-w-sm w-full shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            <div className="font-semibold text-stone-100 mb-2">{popup}</div>
+            <p className="text-xs text-stone-300 leading-relaxed">{CONDITION_DESC[popup]}</p>
+            <button type="button" onClick={() => setPopup(null)}
+              className="mt-4 btn btn-secondary btn-sm w-full text-xs">Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function CharacterSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -494,7 +668,8 @@ export default function CharacterSheet() {
       character_backstory: '', allies_and_organizations: '',
       additional_features_and_traits: '', treasure: '',
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
-      passive_perception: 10, conditions: [], notes: '', features_list: [],
+      passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
+      speed_base: null, max_hp_base: null,
     }
   })
 
@@ -510,6 +685,8 @@ export default function CharacterSheet() {
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
   const autoSaveTimer = useRef(null)
   const savedValuesRef = useRef(null)
+  const isInitialLoadRef   = useRef(false)
+  const prevEffectStateRef = useRef(null)
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
@@ -622,6 +799,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setLevelUpModal(null)
   }
 
+  function handleConditionToggle(conditionName) {
+    if (readOnly) return
+    const current = watch('conditions') || []
+    const isRemoving = current.includes(conditionName)
+    let newConditions = isRemoving
+      ? current.filter(c => c !== conditionName)
+      : [...current, conditionName]
+    if (!isRemoving && CONDITION_CHAINS[conditionName]) {
+      for (const chained of CONDITION_CHAINS[conditionName]) {
+        if (!newConditions.includes(chained)) newConditions = [...newConditions, chained]
+      }
+    }
+    setValue('conditions', newConditions, { shouldDirty: true })
+  }
+
   const watchedAbilities  = watch(ABILITIES)
   const watchedProfs      = watch('saving_throw_profs') || []
   const watchedSkillProfs = watch('skill_profs') || []
@@ -664,10 +856,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchedDeathFailures  = watch('death_save_failures')  ?? 0
   const computedHitDice       = computeHitDice(allClasses)
   const remainingDice         = parseHitDice(watchedHdRemaining)
+  const activeConditions      = watch('conditions') || []
+  const watchedExhaustion     = watch('exhaustion') ?? 0
 
   function useHitDieOfSize(size) {
     const updated = remainingDice.map(d => d.size === size ? { ...d, count: d.count - 1 } : d).filter(d => d.count > 0)
-    setValue('hit_dice_remaining', stringifyHitDice(updated), { shouldDirty: true })
+    setValue('hit_dice_remaining', updated.length ? stringifyHitDice(updated) : '0', { shouldDirty: true })
   }
 
   // Normalize trailing/leading zeros in any number input across the sheet
@@ -702,12 +896,81 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(allClasses.map(c => [c.level, c.hit_die]))])
 
+  // Apply condition & exhaustion side-effects (speed, max HP)
+  useEffect(() => {
+    const prev = prevEffectStateRef.current
+    prevEffectStateRef.current = { conditions: activeConditions, exhaustion: watchedExhaustion }
+    if (prev === null) return                                               // skip mount with defaults
+    if (isInitialLoadRef.current) { isInitialLoadRef.current = false; return } // skip data-load reset
+
+    // --- Speed effects ---
+    const currSpeed   = watch('speed')
+    const speedBase   = watch('speed_base') ?? null  // null = no condition was active
+    const hasSpeedFx  = activeConditions.some(c => SPEED_ZERO_CONDITIONS.has(c)) || watchedExhaustion >= 2
+
+    if (hasSpeedFx) {
+      if (speedBase == null) {
+        // First activation: save current speed as base, then apply effect
+        setValue('speed_base', currSpeed, { shouldDirty: true })
+        const target = computeEffectiveSpeed(currSpeed, activeConditions, watchedExhaustion)
+        if (target !== currSpeed) setValue('speed', target, { shouldDirty: true })
+      } else {
+        // Already have a base: recompute target from it
+        const target = computeEffectiveSpeed(speedBase, activeConditions, watchedExhaustion)
+        if (target !== currSpeed) setValue('speed', target, { shouldDirty: true })
+      }
+    } else if (speedBase != null) {
+      // All speed effects just cleared: detect manual changes via prev state
+      const prevExpected = computeEffectiveSpeed(speedBase, prev.conditions, prev.exhaustion)
+      if (currSpeed !== prevExpected) {
+        // Speed was manually changed while a condition was active → keep it, just clear base
+        setValue('speed_base', null, { shouldDirty: true })
+      } else {
+        setValue('speed', speedBase, { shouldDirty: true })
+        setValue('speed_base', null, { shouldDirty: true })
+      }
+    }
+
+    // --- Max HP effects (exhaustion level 4 → halved) ---
+    const currMaxHp = watch('max_hp')
+    const hpBase    = watch('max_hp_base') ?? null
+
+    if (watchedExhaustion >= 4) {
+      if (hpBase == null) {
+        setValue('max_hp_base', currMaxHp, { shouldDirty: true })
+        const target = Math.max(1, Math.floor(currMaxHp / 2))
+        if (target !== currMaxHp) {
+          setValue('max_hp', target, { shouldDirty: true })
+          const currHp = watch('current_hp')
+          if (currHp > target) setValue('current_hp', target, { shouldDirty: true })
+        }
+      } else {
+        const target = Math.max(1, Math.floor(hpBase / 2))
+        if (target !== currMaxHp) {
+          setValue('max_hp', target, { shouldDirty: true })
+          const currHp = watch('current_hp')
+          if (currHp > target) setValue('current_hp', target, { shouldDirty: true })
+        }
+      }
+    } else if (hpBase != null) {
+      const prevExpected = prev.exhaustion >= 4 ? Math.max(1, Math.floor(hpBase / 2)) : hpBase
+      if (currMaxHp !== prevExpected) {
+        setValue('max_hp_base', null, { shouldDirty: true })
+      } else {
+        setValue('max_hp', hpBase, { shouldDirty: true })
+        setValue('max_hp_base', null, { shouldDirty: true })
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(activeConditions), watchedExhaustion])
+
   useEffect(() => {
     if (isNew) return
     api.get(`/characters/${id}`)
       .then(r => {
         const data = r.data
         // flatten spell_slots to form-friendly shape
+        isInitialLoadRef.current = true
         reset(data)
         savedValuesRef.current = JSON.stringify(data)
         setTempHpDisplayStr(data.temp_hp > 0 ? String(data.temp_hp) : '')
@@ -1136,7 +1399,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
 
           {/* Hit Dice block */}
           <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-2">
@@ -1175,7 +1438,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
           {/* Death Saving Throws block */}
           <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
-            <div className="label text-xs">Death Saving Throws</div>
+            <div className="flex items-center justify-between">
+              <div className="label text-xs">Death Saving Throws</div>
+              {!readOnly && (() => {
+                const hasMarks = watchedDeathSuccesses > 0 || watchedDeathFailures > 0
+                return (
+                  <button type="button"
+                    onClick={() => { if (hasMarks) { setValue('death_save_successes', 0, { shouldDirty: true }); setValue('death_save_failures', 0, { shouldDirty: true }) } }}
+                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${hasMarks ? 'border-fuchsia-600 text-fuchsia-400 hover:bg-fuchsia-900/30 cursor-pointer' : 'border-stone-700 text-stone-600 cursor-default'}`}>
+                    Reset
+                  </button>
+                )
+              })()}
+            </div>
             {[
               { label: 'Successes', field: 'death_save_successes', watched: watchedDeathSuccesses, activeClass: 'bg-green-500 border-green-400' },
               { label: 'Failures',  field: 'death_save_failures',  watched: watchedDeathFailures,  activeClass: 'bg-red-500 border-red-400' },
@@ -1197,31 +1472,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             ))}
           </div>
 
+          {/* Exhaustion block */}
+          <ExhaustionBlock watch={watch} setValue={setValue} readOnly={readOnly} />
+
         </div>
 
         {/* Conditions */}
-        <div>
-          <div className="label mb-2">Conditions</div>
-          <div className="flex flex-wrap gap-2">
-            {CONDITIONS.map(c => {
-              const active = (watch('conditions') || []).includes(c)
-              return (
-                <button
-                  key={c} type="button"
-                  onClick={() => !readOnly && toggleArrayValue('conditions', c)}
-                  className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
-                    active
-                      ? 'bg-red-900 border-red-700 text-red-100'
-                      : 'bg-stone-800 border-stone-600 text-stone-400 hover:border-stone-500'
-                  }`}
-                  disabled={readOnly}
-                >
-                  {c}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <ConditionsBlock
+          watch={watch}
+          readOnly={readOnly}
+          onToggle={handleConditionToggle}
+        />
       </Section>
 
       {/* Attacks */}

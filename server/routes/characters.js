@@ -7,6 +7,7 @@ router.use(requireAuth)
 
 const CHARACTER_FIELDS = [
   'name','class','subclass','level','race','background','alignment','experience_points',
+  'classes',
   'strength','dexterity','constitution','intelligence','wisdom','charisma',
   'saving_throw_profs','skill_profs','skill_expertise',
   'proficiency_bonus','inspiration',
@@ -23,7 +24,7 @@ const CHARACTER_FIELDS = [
 
 const JSON_FIELDS = new Set([
   'saving_throw_profs','skill_profs','skill_expertise','attacks','equipment',
-  'spell_slots','spells','conditions','features_list'
+  'spell_slots','spells','conditions','features_list','classes'
 ])
 
 function parseJsonFields(char) {

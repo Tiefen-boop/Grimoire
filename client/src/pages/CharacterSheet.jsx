@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 
@@ -33,6 +33,21 @@ const SKILLS = [
 
 const ALIGNMENTS = ['Lawful Good','Neutral Good','Chaotic Good','Lawful Neutral','True Neutral','Chaotic Neutral','Lawful Evil','Neutral Evil','Chaotic Evil']
 const SPELL_LEVELS = [0,1,2,3,4,5,6,7,8,9]
+
+// Spell level color palette — index = spell level (0=cantrip … 9=9th)
+// Progression: neutral → sky/blue → purple → fuchsia/rose → orange/amber (escalating power)
+const SPELL_LEVEL_COLORS = [
+  { label: 'Cantrips',  ring: 'border-stone-600',   header: 'bg-stone-800',    text: 'text-stone-300'   },
+  { label: '1st Level', ring: 'border-sky-700',      header: 'bg-sky-950',      text: 'text-sky-300'     },
+  { label: '2nd Level', ring: 'border-blue-700',     header: 'bg-blue-950',     text: 'text-blue-300'    },
+  { label: '3rd Level', ring: 'border-indigo-700',   header: 'bg-indigo-950',   text: 'text-indigo-300'  },
+  { label: '4th Level', ring: 'border-violet-700',   header: 'bg-violet-950',   text: 'text-violet-300'  },
+  { label: '5th Level', ring: 'border-purple-700',   header: 'bg-purple-950',   text: 'text-purple-300'  },
+  { label: '6th Level', ring: 'border-fuchsia-700',  header: 'bg-fuchsia-950',  text: 'text-fuchsia-300' },
+  { label: '7th Level', ring: 'border-pink-700',     header: 'bg-pink-950',     text: 'text-pink-300'    },
+  { label: '8th Level', ring: 'border-orange-700',   header: 'bg-orange-950',   text: 'text-orange-300'  },
+  { label: '9th Level', ring: 'border-amber-600',    header: 'bg-amber-950',    text: 'text-amber-300'   },
+]
 const CONDITIONS = ['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious']
 
 function mod(score) {
@@ -69,6 +84,349 @@ function NumberInput({ label, name, register, small }) {
   )
 }
 
+const SPELL_SCHOOLS = ['Abjuration','Conjuration','Divination','Enchantment','Evocation','Illusion','Necromancy','Transmutation']
+
+const SPELL_FILTERS_GENERAL = [
+  { key: 'action',   label: 'Action',       accepts: (sp)      => /^(1 )?action$/i.test((sp.cast_time || '').trim()) },
+  { key: 'bonus',    label: 'Bonus Action', accepts: (sp)      => /^(1 )?bonus action$/i.test((sp.cast_time || '').trim()) },
+  { key: 'prepared', label: 'Prepared',     accepts: (sp, lvl) => lvl === 0 || !!sp.prepared },
+  { key: 'ritual',   label: 'Ritual',       accepts: (sp)      => !!sp.ritual },
+  { key: 'vocal',    label: 'Vocal',        accepts: (sp)      => !!sp.comp_v },
+  { key: 'somatic',  label: 'Somatic',      accepts: (sp)      => !!sp.comp_s },
+]
+const SPELL_FILTERS_SCHOOLS = SPELL_SCHOOLS.map(s => ({ key: `school_${s}`, label: s, accepts: (sp) => sp.school === s }))
+const SPELL_FILTERS = [...SPELL_FILTERS_GENERAL, ...SPELL_FILTERS_SCHOOLS]
+
+const FILTER_STATE_CLASSES = {
+  0: 'bg-transparent text-stone-500 border-stone-700 hover:text-stone-400 hover:border-stone-500',
+  1: 'bg-blue-900/40 text-blue-300 border-blue-700 hover:bg-blue-900/60',
+  2: 'bg-red-900/40 text-red-300 border-red-700 hover:bg-red-900/60',
+}
+
+function SpellcastingBlock({ classIndex, castingAbility, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
+  const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({
+    control, name: `classes.${classIndex}.spells`,
+  })
+  const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
+
+  const [expandedLevels, setExpandedLevels] = useState(() => {
+    const occupied = new Set(allSpells.map(sp => sp?.level ?? 0))
+    return new Set(SPELL_LEVELS.filter(lvl => occupied.has(lvl)))
+  })
+  const [expandedSpells, setExpandedSpells] = useState(new Set())
+  const [editingSpells,  setEditingSpells]  = useState(new Set())
+  const [noSlotsModal,   setNoSlotsModal]   = useState(null)
+  const [filterStates,   setFilterStates]   = useState(() => {
+    try { const s = localStorage.getItem('grimoire_spell_filters'); return s ? JSON.parse(s) : {} }
+    catch { return {} }
+  })
+  const prevSpellsLengthRef = useRef(0)
+  const pendingNewSpell = useRef(false)
+
+  useEffect(() => {
+    if (pendingNewSpell.current && spellFields.length > prevSpellsLengthRef.current) {
+      const newId = spellFields[spellFields.length - 1].id
+      setEditingSpells(prev => new Set([...prev, newId]))
+      pendingNewSpell.current = false
+    }
+    prevSpellsLengthRef.current = spellFields.length
+  }, [spellFields.length])
+
+  const abilityIdx  = ABILITIES.indexOf(castingAbility)
+  const abilityMod  = abilityIdx >= 0 ? Math.floor(((watchedAbilities[abilityIdx] ?? 10) - 10) / 2) : 0
+  const saveDC      = 8 + watchedProfBonus + abilityMod
+  const attackBonus = watchedProfBonus + abilityMod
+
+  function toggleLevel(lvl) {
+    setExpandedLevels(prev => { const n = new Set(prev); n.has(lvl) ? n.delete(lvl) : n.add(lvl); return n })
+  }
+  function addSpellAtLevel(lvl) {
+    pendingNewSpell.current = true
+    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
+    setExpandedLevels(prev => new Set([...prev, lvl]))
+  }
+  function startEditSpell(fieldId) { setEditingSpells(prev => new Set([...prev, fieldId])) }
+  function stopEditSpell(fieldId)  { setEditingSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n }) }
+  function toggleExpandSpell(fieldId) {
+    setExpandedSpells(prev => { const n = new Set(prev); n.has(fieldId) ? n.delete(fieldId) : n.add(fieldId); return n })
+  }
+  function removeSpellByIndex(fieldId, i) {
+    setEditingSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n })
+    setExpandedSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n })
+    removeSpell(i)
+  }
+  function cycleFilter(key) {
+    setFilterStates(prev => {
+      const curr = prev[key] || 0
+      const next = (curr + 1) % 3
+      const updated = { ...prev }
+      if (next === 0) delete updated[key]
+      else updated[key] = next
+      try { localStorage.setItem('grimoire_spell_filters', JSON.stringify(updated)) } catch {}
+      return updated
+    })
+  }
+  const showFilters = SPELL_FILTERS.filter(f => filterStates[f.key] === 1)
+  const hideFilters = SPELL_FILTERS.filter(f => filterStates[f.key] === 2)
+  function spellVisible(sp, lvl) {
+    if (hideFilters.some(f => f.accepts(sp, lvl))) return false
+    if (showFilters.length > 0 && !showFilters.every(f => f.accepts(sp, lvl))) return false
+    return true
+  }
+
+  function handleUseSlot(lvl) {
+    const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+    if (left <= 0) { setNoSlotsModal({ lvl }); return }
+    setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left - 1, { shouldDirty: true })
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-4 mb-5">
+        <div className="stat-box">
+          <div className="label text-xs text-center">Spell Save DC</div>
+          <div className="text-2xl font-bold text-center text-stone-100 py-1">{saveDC}</div>
+        </div>
+        <div className="stat-box">
+          <div className="label text-xs text-center">Spell Attack</div>
+          <div className="text-2xl font-bold text-center text-stone-100 py-1">{fmtMod(attackBonus)}</div>
+        </div>
+        <span className="text-stone-500 text-xs">{ABILITY_SHORT[castingAbility]} · Prof +{watchedProfBonus}</span>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-1 mb-3">
+        <div className="flex flex-wrap gap-1">
+          {SPELL_FILTERS_GENERAL.map(f => (
+            <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
+              className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {SPELL_FILTERS_SCHOOLS.map(f => (
+            <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
+              className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        {SPELL_LEVELS.map(lvl => {
+          const c = SPELL_LEVEL_COLORS[lvl]
+          const levelSpells = spellFields.map((f, i) => ({ field: f, i })).filter(({ i }) => (allSpells[i]?.level ?? 0) === lvl)
+          const visibleSpells = levelSpells.filter(({ field, i }) => editingSpells.has(field.id) || spellVisible(allSpells[i] || {}, lvl))
+          const isFiltering = showFilters.length > 0 || hideFilters.length > 0
+          const isOpen = expandedLevels.has(lvl)
+          return (
+            <div key={lvl} className={`rounded-lg border ${c.ring} overflow-hidden`}>
+              {/* Level header */}
+              <div className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none ${c.header}`}
+                onClick={() => toggleLevel(lvl)}>
+                <ChevronDownIcon className={`w-4 h-4 ${c.text} shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                <span className={`text-sm font-semibold ${c.text} flex-1`}>{c.label}</span>
+                {lvl > 0 && (
+                  <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    <span className={`text-xs ${c.text} opacity-60`}>Slots:</span>
+                    <input type="number" min={0}
+                      {...register(`classes.${classIndex}.spell_slots.${lvl}.left`, {
+                        valueAsNumber: true,
+                        onChange: e => {
+                          const max = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`)) || 0
+                          const val = parseInt(e.target.value) || 0
+                          if (val > max) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, max, { shouldDirty: true })
+                        }
+                      })}
+                      className={`no-spinner w-8 bg-transparent border border-stone-700 rounded text-center text-xs p-0.5 ${c.text} focus:outline-none`}
+                      disabled={readOnly} />
+                    <span className={`text-xs ${c.text} opacity-50`}>/</span>
+                    <input type="number" min={0}
+                      {...register(`classes.${classIndex}.spell_slots.${lvl}.max`, {
+                        valueAsNumber: true,
+                        onChange: e => {
+                          const max = parseInt(e.target.value) || 0
+                          const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+                          if (left > max) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, max, { shouldDirty: true })
+                        }
+                      })}
+                      className={`no-spinner w-8 bg-transparent border border-stone-700 rounded text-center text-xs p-0.5 ${c.text} focus:outline-none`}
+                      disabled={readOnly} />
+                    <button type="button" onClick={() => handleUseSlot(lvl)}
+                      className={`text-xs px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                      Use slot
+                    </button>
+                  </div>
+                )}
+                {levelSpells.length > 0 && (
+                  <span className={`text-xs ${c.text} opacity-50`}>
+                    {isFiltering && visibleSpells.length !== levelSpells.length
+                      ? `${visibleSpells.length}/${levelSpells.length}`
+                      : levelSpells.length}
+                  </span>
+                )}
+              </div>
+
+              {/* Level body */}
+              {isOpen && (
+                <div className="divide-y divide-stone-700/40">
+                  {levelSpells.length === 0 && (
+                    <p className="text-stone-600 text-xs italic px-3 py-2">No spells.</p>
+                  )}
+                  {levelSpells.length > 0 && visibleSpells.length === 0 && (
+                    <p className="text-stone-600 text-xs italic px-3 py-2">No spells match the active filters.</p>
+                  )}
+                  {visibleSpells.map(({ field, i }) => {
+                    const isEditingSpell  = editingSpells.has(field.id)
+                    const isExpandedSpell = expandedSpells.has(field.id)
+                    const sp = allSpells[i] || {}
+
+                    // Build components string for display
+                    const compParts = [sp.comp_v && 'V', sp.comp_s && 'S', sp.comp_m && 'M'].filter(Boolean)
+                    const compDisplay = compParts.length > 0
+                      ? compParts.join(', ') + (sp.comp_m && sp.comp_m_text ? ` (${sp.comp_m_text})` : '')
+                      : null
+
+                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description
+
+                    return (
+                      <div key={field.id}>
+                        {isEditingSpell && !readOnly ? (
+                          <div className="px-3 py-2 space-y-2">
+                            {/* Row 1: name, cast time, range + action buttons */}
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
+                              <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input w-28" placeholder="Cast time" />
+                              <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input w-24" placeholder="Range" />
+                              <button type="button" onClick={() => stopEditSpell(field.id)}
+                                className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                <CheckIcon className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
+                                className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                <TrashIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                            {/* Row 2: school, duration, prepared, ritual */}
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input w-40">
+                                <option value="">— School —</option>
+                                {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                              <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input w-32" placeholder="Duration" />
+                              {lvl > 0 && (
+                                <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
+                                  <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
+                                  Prepared
+                                </label>
+                              )}
+                              <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
+                                <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.ritual`)} className="accent-stone-500" />
+                                Ritual
+                              </label>
+                            </div>
+                            {/* Row 3: components */}
+                            <div className="flex gap-3 flex-wrap items-center">
+                              <span className="text-xs text-stone-400">Components:</span>
+                              {['V','S','M'].map(comp => (
+                                <label key={comp} className="flex items-center gap-1 text-xs text-stone-400 cursor-pointer">
+                                  <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.comp_${comp.toLowerCase()}`)} className="accent-stone-500" />
+                                  {comp}
+                                </label>
+                              ))}
+                              {sp.comp_m && (
+                                <input {...register(`classes.${classIndex}.spells.${i}.comp_m_text`)} className="input flex-1 min-w-40 text-sm" placeholder="Material components" />
+                              )}
+                            </div>
+                            {/* Row 4: description */}
+                            <textarea {...register(`classes.${classIndex}.spells.${i}.description`)} className="input w-full resize-none text-sm"
+                              rows={2} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                          </div>
+                        ) : (
+                          <div>
+                            {/* View mode header row */}
+                            <div className="flex items-start gap-1.5 px-3 py-2 cursor-pointer select-none"
+                              onClick={() => toggleExpandSpell(field.id)}>
+                              <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-stone-100 text-sm break-words">
+                                  {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                </div>
+                                {sp.ritual && (
+                                  <div className="text-stone-500 text-xs italic">(ritual)</div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                  {lvl > 0 && (
+                                    <button type="button"
+                                      onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
+                                      className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
+                                      Prep
+                                    </button>
+                                  )}
+                                  {sp.cast_time && <span className="text-xs text-stone-500">{sp.cast_time}</span>}
+                                  {sp.range && <span className="text-xs text-stone-500">{sp.range}</span>}
+                                  {!readOnly && (
+                                    <>
+                                      <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
+                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700">
+                                        <PencilIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
+                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700">
+                                        <TrashIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {/* Expanded content */}
+                            {isExpandedSpell && hasExpandedContent && (
+                              <div className="px-4 pb-3 border-t border-stone-700/40 pt-2 space-y-1.5">
+                                {sp.school && (
+                                  <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>
+                                )}
+                                {compDisplay && (
+                                  <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>
+                                )}
+                                {sp.duration && (
+                                  <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
+                                )}
+                                {sp.description && (
+                                  <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {!readOnly && (
+                    <div className="px-3 py-2">
+                      <button type="button" onClick={() => addSpellAtLevel(lvl)}
+                        className={`text-xs flex items-center gap-0.5 ${c.text} opacity-70 hover:opacity-100`}>
+                        <PlusIcon className="w-3.5 h-3.5" /> Add {lvl === 0 ? 'cantrip' : 'spell'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <Modal open={!!noSlotsModal} title="No slots remaining"
+        onCancel={() => setNoSlotsModal(null)}>
+        No {noSlotsModal ? SPELL_LEVEL_COLORS[noSlotsModal.lvl].label.toLowerCase() : ''} slots remaining.
+      </Modal>
+    </div>
+  )
+}
+
 export default function CharacterSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -77,7 +435,8 @@ export default function CharacterSheet() {
 
   const { register, control, handleSubmit, watch, reset, setValue, formState: { isDirty, isSubmitting } } = useForm({
     defaultValues: {
-      name: '', class: '', subclass: '', level: 1, race: '', background: '', alignment: '', experience_points: 0,
+      name: '', race: '', background: '', alignment: '', experience_points: 0,
+      classes: [],
       strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10,
       saving_throw_profs: [], skill_profs: [], skill_expertise: [],
       proficiency_bonus: 2, inspiration: 0,
@@ -89,8 +448,6 @@ export default function CharacterSheet() {
       copper: 0, silver: 0, electrum: 0, gold: 0, platinum: 0,
       personality_traits: '', ideals: '', bonds: '', flaws: '',
       features_and_traits: '', other_proficiencies: '',
-      spellcasting_ability: '', spell_save_dc: 0, spell_attack_bonus: 0,
-      spell_slots: {}, spells: [],
       character_backstory: '', allies_and_organizations: '',
       additional_features_and_traits: '', treasure: '',
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
@@ -99,7 +456,7 @@ export default function CharacterSheet() {
   })
 
   const { fields: attackFields, append: addAttack, remove: removeAttack } = useFieldArray({ control, name: 'attacks' })
-  const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({ control, name: 'spells' })
+  const { fields: classFields,  append: addClass,  remove: removeClass  } = useFieldArray({ control, name: 'classes' })
   const { fields: featureFields, append: addFeature, remove: removeFeature } = useFieldArray({ control, name: 'features_list' })
 
   const [loading, setLoading] = useState(!isNew)
@@ -114,8 +471,14 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
   const pendingNewFeature = useRef(false)
-  const [useFeatureModal,     setUseFeatureModal]     = useState(null) // { index, name }
-  const [outOfChargesModal,   setOutOfChargesModal]   = useState(null) // { name }
+  const [useFeatureModal,   setUseFeatureModal]   = useState(null) // { index, name }
+  const [outOfChargesModal, setOutOfChargesModal] = useState(null) // { name }
+
+  const [editingClasses,  setEditingClasses]  = useState(new Set())
+  const prevClassesLengthRef = useRef(0)
+  const pendingNewClass      = useRef(false)
+  const [levelUpModal,      setLevelUpModal]      = useState(null) // { index, className }
+  const [deleteClassModal,  setDeleteClassModal]  = useState(null) // { index, className, isSpellcaster }
 
   useEffect(() => {
     if (pendingNewFeature.current && featureFields.length > prevFeaturesLengthRef.current) {
@@ -126,6 +489,14 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }
     prevFeaturesLengthRef.current = featureFields.length
   }, [featureFields.length])
+
+  useEffect(() => {
+    if (pendingNewClass.current && classFields.length > prevClassesLengthRef.current) {
+      setEditingClasses(prev => new Set([...prev, classFields[classFields.length - 1].id]))
+      pendingNewClass.current = false
+    }
+    prevClassesLengthRef.current = classFields.length
+  }, [classFields.length])
 
   const watchedFormValues = useWatch({ control })
   const watchedJson = JSON.stringify(watchedFormValues)
@@ -182,11 +553,45 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setUseFeatureModal(null)
   }
 
-  const watchedAbilities = watch(ABILITIES)
-  const watchedProfs = watch('saving_throw_profs') || []
+  function startEditClass(fieldId) { setEditingClasses(prev => new Set([...prev, fieldId])) }
+  function stopEditClass(fieldId)  { setEditingClasses(prev => { const n = new Set(prev); n.delete(fieldId); return n }) }
+  function handleRemoveClass(i) {
+    const cls = allClasses[i] || {}
+    setDeleteClassModal({ index: i, className: cls.name || 'this class', isSpellcaster: !!cls.is_spellcaster, step: 1 })
+  }
+  function confirmRemoveClass() {
+    if (deleteClassModal.step === 1) {
+      setDeleteClassModal(prev => ({ ...prev, step: 2 }))
+      return
+    }
+    const i = deleteClassModal.index
+    setEditingClasses(prev => { const n = new Set(prev); n.delete(classFields[i].id); return n })
+    removeClass(i)
+    setDeleteClassModal(null)
+  }
+  function handleLevelUp(i) {
+    setLevelUpModal({ index: i, className: allClasses[i]?.name || 'this class' })
+  }
+  function confirmLevelUp() {
+    const curr = parseInt(watch(`classes.${levelUpModal.index}.level`)) || 0
+    setValue(`classes.${levelUpModal.index}.level`, curr + 1, { shouldDirty: true })
+    setLevelUpModal(null)
+  }
+
+  const watchedAbilities  = watch(ABILITIES)
+  const watchedProfs      = watch('saving_throw_profs') || []
   const watchedSkillProfs = watch('skill_profs') || []
-  const watchedSkillExp = watch('skill_expertise') || []
-  const watchedProfBonus = watch('proficiency_bonus') || 2
+  const watchedSkillExp   = watch('skill_expertise') || []
+  const watchedProfBonus  = watch('proficiency_bonus') ?? 0
+  const allClasses        = watch('classes') || []
+
+  // Auto-calculate proficiency bonus: 2 + floor((totalLevel - 1) / 4)
+  useEffect(() => {
+    const total = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
+    const bonus = total > 0 ? 2 + Math.floor((total - 1) / 4) : 0
+    setValue('proficiency_bonus', bonus)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(allClasses.map(c => c.level))])
 
   useEffect(() => {
     if (isNew) return
@@ -274,22 +679,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Basic Info */}
       <Section title="Basic Information">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <div className="col-span-2 sm:col-span-1">
+        {/* Row 1 on desktop: Name · Race · Background · Alignment
+            Mobile: Name+Race on row 1, Background+Alignment on row 2 */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <div>
             <label className="label">Character Name</label>
             <input {...register('name')} className="input" disabled={readOnly} />
-          </div>
-          <div>
-            <label className="label">Class</label>
-            <input {...register('class')} className="input" disabled={readOnly} />
-          </div>
-          <div>
-            <label className="label">Subclass</label>
-            <input {...register('subclass')} className="input" disabled={readOnly} />
-          </div>
-          <div>
-            <label className="label">Level</label>
-            <input type="number" min={1} max={20} {...register('level', { valueAsNumber: true })} className="input" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Race</label>
@@ -306,17 +701,111 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
               {ALIGNMENTS.map(a => <option key={a}>{a}</option>)}
             </select>
           </div>
-          <div>
-            <label className="label">Experience Points</label>
-            <input type="number" min={0} {...register('experience_points', { valueAsNumber: true })} className="input" disabled={readOnly} />
+        </div>
+
+        {/* Classes list */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="label">Classes</span>
+            {!readOnly && (
+              <button type="button"
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
+                className="btn btn-secondary btn-sm py-0.5 text-xs">
+                <PlusIcon className="w-3 h-3 mr-1" /> Add Class
+              </button>
+            )}
           </div>
-          <div>
-            <label className="label">Proficiency Bonus</label>
-            <input type="number" {...register('proficiency_bonus', { valueAsNumber: true })} className="input" disabled={readOnly} />
+          <div className="space-y-1">
+            {classFields.length === 0 && <p className="text-stone-600 text-xs italic px-1">No classes added.</p>}
+            {classFields.map((field, i) => {
+              const isEditing = editingClasses.has(field.id)
+              const cls = allClasses[i] || {}
+              return (
+                <div key={field.id} className="bg-stone-800 border border-stone-700 rounded-lg overflow-hidden">
+                  {isEditing && !readOnly ? (
+                    <div className="p-2 space-y-2">
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <input {...register(`classes.${i}.name`)} className="input flex-1 min-w-28" placeholder="Class name" autoFocus={!cls.name} />
+                        <input {...register(`classes.${i}.subclass`)} className="input flex-1 min-w-28" placeholder="Subclass (optional)" />
+                        <input type="number" min={1} max={20} {...register(`classes.${i}.level`, { valueAsNumber: true })} className="input w-16" placeholder="Lvl" />
+                        <button type="button" onClick={() => stopEditClass(field.id)}
+                          className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                          <CheckIcon className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => handleRemoveClass(i)}
+                          className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none">
+                          <input type="checkbox" {...register(`classes.${i}.is_spellcaster`)} className="accent-red-700 w-4 h-4" />
+                          Spellcaster
+                        </label>
+                        {cls.is_spellcaster && (
+                          <select {...register(`classes.${i}.casting_ability`)} className="input w-40">
+                            <option value="">— casting ability —</option>
+                            {ABILITIES.map(a => <option key={a} value={a}>{ABILITY_SHORT[a]} — {a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <span className="flex-1 text-stone-100 text-sm font-medium truncate min-w-0">
+                        {cls.name || <span className="text-stone-500 italic">Unnamed class</span>}
+                        {cls.subclass && <span className="text-stone-400 font-normal"> / {cls.subclass}</span>}
+                      </span>
+                      {cls.is_spellcaster && cls.casting_ability && (
+                        <span className="flex items-center gap-0.5 text-xs text-yellow-400 shrink-0">
+                          <SparklesIcon className="w-3.5 h-3.5" />{ABILITY_SHORT[cls.casting_ability]}
+                        </span>
+                      )}
+                      {!readOnly && (
+                        <button type="button" onClick={() => handleLevelUp(i)}
+                          className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40">
+                          Level Up!
+                        </button>
+                      )}
+                      {cls.level > 0 && (
+                        <span className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded shrink-0">Lv. {cls.level}</span>
+                      )}
+                      {!readOnly && (
+                        <>
+                          <button type="button" onClick={() => startEditClass(field.id)}
+                            className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
+                            <PencilIcon className="w-4 h-4" />
+                          </button>
+                          <button type="button" onClick={() => handleRemoveClass(i)}
+                            className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
-          <div>
-            <label className="label">Inspiration</label>
-            <input type="number" min={0} {...register('inspiration', { valueAsNumber: true })} className="input" disabled={readOnly} />
+        </div>
+
+        {/* Secondary stats row */}
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="stat-box">
+            <div className="label text-xs text-center">Experience Points</div>
+            <input type="number" min={0} {...register('experience_points', { valueAsNumber: true })}
+              className="input text-center text-xl font-bold p-1 no-spinner" disabled={readOnly} />
+          </div>
+          <div className="stat-box">
+            <div className="label text-xs text-center">Proficiency Bonus</div>
+            <div className="text-xl font-bold text-center text-stone-100 py-0.5">+{watchedProfBonus}</div>
+            <input type="hidden" {...register('proficiency_bonus', { valueAsNumber: true })} />
+          </div>
+          <div className="stat-box">
+            <div className="label text-xs text-center">Inspiration</div>
+            <input type="number" min={0} {...register('inspiration', { valueAsNumber: true })}
+              className="input text-center text-xl font-bold p-1 no-spinner" disabled={readOnly} />
           </div>
         </div>
       </Section>
@@ -654,83 +1143,28 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly} onEditingChange={setEquipmentHasEditing} />
       </Section>
 
-      {/* Spellcasting */}
-      <Section title="Spellcasting" defaultOpen={false}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-          <div>
-            <label className="label">Spellcasting Ability</label>
-            <select {...register('spellcasting_ability')} className="input" disabled={readOnly}>
-              <option value="">None</option>
-              {ABILITIES.map(a => <option key={a} value={a}>{ABILITY_SHORT[a]}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Spell Save DC</label>
-            <input type="number" {...register('spell_save_dc', { valueAsNumber: true })} className="input" disabled={readOnly} />
-          </div>
-          <div>
-            <label className="label">Spell Attack Bonus</label>
-            <input type="number" {...register('spell_attack_bonus', { valueAsNumber: true })} className="input" disabled={readOnly} />
-          </div>
-        </div>
-
-        {/* Spell slots */}
-        <div className="mb-4">
-          <div className="label mb-2">Spell Slots</div>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-            {[1,2,3,4,5,6,7,8,9].map(lvl => (
-              <div key={lvl} className="stat-box">
-                <div className="label text-xs text-center">Level {lvl}</div>
-                <div className="flex gap-1">
-                  <input type="number" min={0} {...register(`spell_slots.${lvl}.total`, { valueAsNumber: true })}
-                    className="input text-center p-1 text-sm" placeholder="—" disabled={readOnly} />
-                  <input type="number" min={0} {...register(`spell_slots.${lvl}.used`, { valueAsNumber: true })}
-                    className="input text-center p-1 text-sm" placeholder="—" disabled={readOnly} />
-                </div>
-                <div className="text-xs text-stone-500 text-center mt-0.5">total / used</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Spells list */}
-        <div>
-          <div className="label mb-2">Spells</div>
-          <div className="space-y-1 mb-2">
-            {spellFields.map((field, i) => (
-              <div key={field.id} className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                <select {...register(`spells.${i}.level`, { valueAsNumber: true })} className="input" disabled={readOnly}>
-                  {SPELL_LEVELS.map(l => <option key={l} value={l}>{l === 0 ? 'Cantrip' : `Level ${l}`}</option>)}
-                </select>
-                <input {...register(`spells.${i}.name`)} className="input" placeholder="Spell name" disabled={readOnly} />
-                <input {...register(`spells.${i}.cast_time`)} className="input" placeholder="Cast time" disabled={readOnly} />
-                <input {...register(`spells.${i}.range`)} className="input" placeholder="Range" disabled={readOnly} />
-                <div className="flex gap-1 items-center">
-                  <label className="flex items-center gap-1 text-xs text-stone-400">
-                    <input type="checkbox" {...register(`spells.${i}.prepared`)} disabled={readOnly} className="accent-red-700" />
-                    Prep
-                  </label>
-                  {!readOnly && (
-                    <button type="button" onClick={() => removeSpell(i)} className="text-stone-500 hover:text-red-400 p-1 ml-auto">
-                      <TrashIcon className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-                <div className="col-span-2 sm:col-span-5">
-                  <input {...register(`spells.${i}.description`)} className="input text-sm" placeholder="Description (optional)" disabled={readOnly} />
-                </div>
-              </div>
-            ))}
-          </div>
-          {!readOnly && (
-            <button type="button"
-              onClick={() => addSpell({ level: 1, name: '', cast_time: '', range: '', prepared: false, description: '' })}
-              className="btn btn-secondary btn-sm">
-              <PlusIcon className="w-4 h-4 mr-1" /> Add Spell
-            </button>
-          )}
-        </div>
-      </Section>
+      {/* Dynamic Spellcasting sections — one per spellcasting class */}
+      {classFields.map((field, i) => {
+        const cls = allClasses[i]
+        if (!cls?.is_spellcaster || !cls?.casting_ability) return null
+        return (
+          <Section key={field.id}
+            title={<span className="flex items-baseline gap-1.5">SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
+            defaultOpen={false}>
+            <SpellcastingBlock
+              classIndex={i}
+              castingAbility={cls.casting_ability}
+              control={control}
+              register={register}
+              watch={watch}
+              setValue={setValue}
+              readOnly={readOnly}
+              watchedProfBonus={watchedProfBonus}
+              watchedAbilities={watchedAbilities}
+            />
+          </Section>
+        )
+      })}
 
       {/* Traits & Features */}
       <Section title="Personality & Traits" defaultOpen={false}>
@@ -802,6 +1236,41 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <Section title="Notes" defaultOpen={false}>
         <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
+
+      {/* Delete class modal — step 1 */}
+      <Modal open={!!deleteClassModal && deleteClassModal.step === 1}
+        title="Remove class?"
+        onConfirm={confirmRemoveClass} onCancel={() => setDeleteClassModal(null)}
+        confirmLabel="Continue" danger>
+        {deleteClassModal?.isSpellcaster ? (
+          <>
+            <strong>{deleteClassModal.className}</strong> is a spellcasting class.{' '}
+            Removing it will permanently delete its entire spellbook and spell slot configuration.{' '}
+            <span className="text-red-400 font-medium">This cannot be undone.</span>
+          </>
+        ) : (
+          <>Are you sure you want to remove <strong>{deleteClassModal?.className}</strong> from this character?</>
+        )}
+      </Modal>
+
+      {/* Delete class modal — step 2 */}
+      <Modal open={!!deleteClassModal && deleteClassModal.step === 2}
+        title="Are you absolutely sure?"
+        onConfirm={confirmRemoveClass} onCancel={() => setDeleteClassModal(null)}
+        confirmLabel="Yes, delete it" danger>
+        This is your last chance.{' '}
+        {deleteClassModal?.isSpellcaster
+          ? <>All spells and slot data for <strong>{deleteClassModal.className}</strong> will be lost forever.</>
+          : <><strong>{deleteClassModal?.className}</strong> will be removed.</>
+        }
+      </Modal>
+
+      {/* Level up modal */}
+      <Modal open={!!levelUpModal} title="Level Up?"
+        onConfirm={confirmLevelUp} onCancel={() => setLevelUpModal(null)} confirmLabel="Level Up">
+        Level up in <strong>{levelUpModal?.className}</strong>?{' '}
+        (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
+      </Modal>
 
       {/* Feature modals */}
       <Modal open={!!useFeatureModal} title="Use feature?"

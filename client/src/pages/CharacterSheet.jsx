@@ -54,6 +54,48 @@ const CONDITIONS = ['Blinded','Charmed','Deafened','Exhaustion','Frightened','Gr
 function mod(score) {
   return Math.floor((score - 10) / 2)
 }
+
+const HD_DIE_SIZES = [4, 6, 8, 10, 12, 20]
+
+function parseHitDice(str) {
+  if (!str) return []
+  return str.split('+').map(s => {
+    const m = s.trim().match(/^(\d+)[dD](\d+)$/)
+    return m ? { count: parseInt(m[1]), size: parseInt(m[2]) } : null
+  }).filter(Boolean)
+}
+
+function stringifyHitDice(dice) {
+  return dice.filter(d => d.count > 0)
+    .sort((a, b) => b.size - a.size)
+    .map(d => `${d.count}d${d.size}`)
+    .join('+')
+}
+
+function computeHitDice(classes) {
+  const counts = {}
+  for (const cls of classes) {
+    const m = String(cls.hit_die || '').match(/^(\d*)[dD](\d+)$/)
+    if (!m) continue
+    const size = m[2]
+    const perLevel = parseInt(m[1]) || 1
+    const count = perLevel * (parseInt(cls.level) || 0)
+    if (count > 0) counts[size] = (counts[size] || 0) + count
+  }
+  return Object.entries(counts)
+    .sort(([a], [b]) => parseInt(b) - parseInt(a))
+    .map(([s, c]) => `${c}d${s}`)
+    .join('+')
+}
+
+function cleanHitDiceInput(str) {
+  // Keep only valid ndm segments, drop free text / bare numbers
+  if (!str) return ''
+  return str.split(/[+,\s]+/).map(s => {
+    const m = s.trim().match(/^(\d+)[dD](\d+)$/)
+    return m && parseInt(m[1]) > 0 && parseInt(m[2]) > 0 ? `${m[1]}d${m[2]}` : null
+  }).filter(Boolean).join('+')
+}
 function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
 }
@@ -617,6 +659,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     return base + shieldBonus
   })()
 
+  const watchedHdRemaining    = watch('hit_dice_remaining') || ''
+  const watchedDeathSuccesses = watch('death_save_successes') ?? 0
+  const watchedDeathFailures  = watch('death_save_failures')  ?? 0
+  const computedHitDice       = computeHitDice(allClasses)
+  const remainingDice         = parseHitDice(watchedHdRemaining)
+
+  function useHitDieOfSize(size) {
+    const updated = remainingDice.map(d => d.size === size ? { ...d, count: d.count - 1 } : d).filter(d => d.count > 0)
+    setValue('hit_dice_remaining', stringifyHitDice(updated), { shouldDirty: true })
+  }
+
   // Normalize trailing/leading zeros in any number input across the sheet
   useEffect(() => {
     function normalizeNumber(e) {
@@ -639,6 +692,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setValue('proficiency_bonus', bonus)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(allClasses.map(c => c.level))])
+
+  // Auto-sync hit_dice from class levels/hit_die; seed hit_dice_remaining when empty
+  useEffect(() => {
+    const computed = computeHitDice(allClasses)
+    setValue('hit_dice', computed)
+    const remaining = watch('hit_dice_remaining')
+    if (!remaining || remaining === '') setValue('hit_dice_remaining', computed)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(allClasses.map(c => [c.level, c.hit_die]))])
 
   useEffect(() => {
     if (isNew) return
@@ -756,7 +818,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -775,6 +837,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         <input {...register(`classes.${i}.name`)} className="input flex-1 min-w-28" placeholder="Class name" autoFocus={!cls.name} />
                         <input {...register(`classes.${i}.subclass`)} className="input flex-1 min-w-28" placeholder="Subclass (optional)" />
                         <input type="number" min={1} max={20} {...register(`classes.${i}.level`, { valueAsNumber: true })} className="input w-16" placeholder="Lvl" />
+                        <select {...register(`classes.${i}.hit_die`)} className="input w-20">
+                          <option value="">HD</option>
+                          {HD_DIE_SIZES.map(n => <option key={n} value={`d${n}`}>d{n}</option>)}
+                        </select>
                         <button type="button" onClick={() => stopEditClass(field.id)}
                           className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
                           <CheckIcon className="w-4 h-4" />
@@ -813,6 +879,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                           className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40">
                           Level Up!
                         </button>
+                      )}
+                      {cls.hit_die && (
+                        <span className="text-xs text-stone-500 shrink-0">{cls.hit_die}</span>
                       )}
                       {cls.level > 0 && (
                         <span className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded shrink-0">Lv. {cls.level}</span>
@@ -1067,23 +1136,67 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          <div>
-            <label className="label">Hit Dice</label>
-            <input {...register('hit_dice')} className="input" placeholder="e.g. 5d8" disabled={readOnly} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+
+          {/* Hit Dice block */}
+          <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-2">
+            <div className="label text-xs">Hit Dice</div>
+            <div className="flex items-baseline gap-1.5 text-sm">
+              <span className="text-stone-400 text-xs shrink-0">Total:</span>
+              <span className="text-stone-100 font-semibold">{computedHitDice || <span className="text-stone-600 italic">—</span>}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-stone-400 text-xs shrink-0">Remaining:</span>
+              <input
+                {...register('hit_dice_remaining', {
+                  onBlur: e => {
+                    const cleaned = cleanHitDiceInput(e.target.value)
+                    const val = cleaned || computedHitDice
+                    setValue('hit_dice_remaining', val, { shouldDirty: true })
+                  }
+                })}
+                className="input text-sm py-0.5 flex-1 min-w-0"
+                placeholder={computedHitDice || 'e.g. 3d8'}
+                disabled={readOnly}
+              />
+            </div>
+            {!readOnly && remainingDice.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {remainingDice.map(({ count, size }) => (
+                  <button key={size} type="button"
+                    onClick={() => useHitDieOfSize(size)}
+                    className="btn btn-secondary btn-sm text-xs py-0.5 px-2">
+                    Use d{size} <span className="text-stone-500 ml-1">({count})</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div>
-            <label className="label">Hit Dice Remaining</label>
-            <input {...register('hit_dice_remaining')} className="input" placeholder="e.g. 3d8" disabled={readOnly} />
+
+          {/* Death Saving Throws block */}
+          <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
+            <div className="label text-xs">Death Saving Throws</div>
+            {[
+              { label: 'Successes', field: 'death_save_successes', watched: watchedDeathSuccesses, activeClass: 'bg-green-500 border-green-400' },
+              { label: 'Failures',  field: 'death_save_failures',  watched: watchedDeathFailures,  activeClass: 'bg-red-500 border-red-400' },
+            ].map(({ label, field, watched, activeClass }) => (
+              <div key={field} className="flex items-center gap-3">
+                <span className="text-stone-400 text-xs w-16 shrink-0">{label}</span>
+                <div className="flex gap-2">
+                  {[1, 2, 3].map(j => (
+                    <button key={j} type="button"
+                      onClick={() => !readOnly && setValue(field, watched >= j ? j - 1 : j, { shouldDirty: true })}
+                      className={`w-6 h-6 rounded-full border-2 transition-colors ${
+                        watched >= j ? activeClass : 'bg-transparent border-stone-600 hover:border-stone-400'
+                      }`}
+                      disabled={readOnly}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-          <div>
-            <label className="label">Death Save Successes</label>
-            <input type="number" min={0} max={3} {...register('death_save_successes', { valueAsNumber: true })} className="input" disabled={readOnly} />
-          </div>
-          <div>
-            <label className="label">Death Save Failures</label>
-            <input type="number" min={0} max={3} {...register('death_save_failures', { valueAsNumber: true })} className="input" disabled={readOnly} />
-          </div>
+
         </div>
 
         {/* Conditions */}

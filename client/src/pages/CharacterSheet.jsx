@@ -568,25 +568,9 @@ function ExhaustionBlock({ watch, setValue, readOnly }) {
 }
 
 function ConditionsBlock({ watch, readOnly, onToggle }) {
-  const [tooltip, setTooltip]       = useState(null)   // { name, x, y } for mouse tooltip
-  const [popup, setPopup]           = useState(null)   // condition name for mobile popup
-  const longPressTimer              = useRef(null)
+  const [tooltip, setTooltip] = useState(null)   // { name, x, y } for mouse tooltip
   const activeConditions            = watch('conditions') || []
 
-  function onMouseMove(e, name) {
-    setTooltip({ name, x: e.clientX, y: e.clientY })
-  }
-  function onMouseLeave() { setTooltip(null) }
-
-  function onTouchStart(e, name) {
-    longPressTimer.current = setTimeout(() => {
-      e.preventDefault()
-      setPopup(name)
-    }, 500)
-  }
-  function onTouchEnd() {
-    clearTimeout(longPressTimer.current)
-  }
 
   return (
     <div>
@@ -598,11 +582,8 @@ function ConditionsBlock({ watch, readOnly, onToggle }) {
             <button
               key={c} type="button"
               onClick={() => onToggle(c)}
-              onMouseMove={e => onMouseMove(e, c)}
-              onMouseLeave={onMouseLeave}
-              onTouchStart={e => onTouchStart(e, c)}
-              onTouchEnd={onTouchEnd}
-              onTouchMove={onTouchEnd}
+              onMouseMove={e => setTooltip({ name: c, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setTooltip(null)}
               className={`px-2 py-1 rounded text-xs font-medium border transition-colors select-none ${
                 active
                   ? 'bg-red-900 border-red-700 text-red-100'
@@ -627,19 +608,6 @@ function ConditionsBlock({ watch, readOnly, onToggle }) {
         </div>
       )}
 
-      {/* Long-press popup (mobile) */}
-      {popup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60"
-          onClick={() => setPopup(null)}>
-          <div className="bg-stone-900 border border-stone-600 rounded-xl p-5 max-w-sm w-full shadow-2xl"
-            onClick={e => e.stopPropagation()}>
-            <div className="font-semibold text-stone-100 mb-2">{popup}</div>
-            <p className="text-xs text-stone-300 leading-relaxed">{CONDITION_DESC[popup]}</p>
-            <button type="button" onClick={() => setPopup(null)}
-              className="mt-4 btn btn-secondary btn-sm w-full text-xs">Close</button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1037,10 +1005,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </h1>
         <div className="flex items-center gap-2">
           {error && <span className="text-red-400 text-sm">{error}</span>}
-          {saved && <span className="text-green-400 text-sm">Saved!</span>}
           {!readOnly && (
-            <button type="submit" disabled={isSubmitting} className="btn btn-primary">
-              {isSubmitting ? 'Saving…' : isNew ? 'Create' : 'Save'}
+            <button type="submit" disabled={isSubmitting}
+              className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
+              {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create' : 'Save'}
             </button>
           )}
           <button type="button" onClick={() => navigate('/characters')} className="btn btn-secondary">
@@ -1811,9 +1779,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       {!readOnly && (
         <div className="flex justify-end gap-2 mt-2">
           {error && <span className="text-red-400 text-sm self-center">{error}</span>}
-          {saved && <span className="text-green-400 text-sm self-center">Saved!</span>}
-          <button type="submit" disabled={isSubmitting} className="btn btn-primary">
-            {isSubmitting ? 'Saving…' : isNew ? 'Create Character' : 'Save Changes'}
+          <button type="submit" disabled={isSubmitting}
+            className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
+            {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create Character' : 'Save Changes'}
           </button>
         </div>
       )}

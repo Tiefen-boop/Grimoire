@@ -617,6 +617,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     return base + shieldBonus
   })()
 
+  // Normalize trailing/leading zeros in any number input across the sheet
+  useEffect(() => {
+    function normalizeNumber(e) {
+      const el = e.target
+      if (el.tagName !== 'INPUT' || el.type !== 'number' || !el.name) return
+      if (el.value === '' || el.value === '-') return
+      const n = parseFloat(el.value)
+      if (isNaN(n)) return
+      const normalized = String(n)
+      if (el.value !== normalized) setValue(el.name, n, { shouldDirty: true })
+    }
+    document.addEventListener('blur', normalizeNumber, true)
+    return () => document.removeEventListener('blur', normalizeNumber, true)
+  }, [setValue])
+
   // Auto-calculate proficiency bonus: 2 + floor((totalLevel - 1) / 4)
   useEffect(() => {
     const total = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
@@ -930,10 +945,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Combat */}
       <Section title="Combat">
-        <div className="flex flex-wrap gap-3 items-end mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
 
           {/* HP + Temp HP bars */}
-          <div className="w-full sm:flex-1 flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             {/* HP Bar */}
             <div className="relative h-12 rounded-lg overflow-hidden bg-stone-900">
               <div className="absolute inset-y-0 left-0 bg-red-700 transition-all duration-200 rounded-lg"
@@ -1000,31 +1015,33 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
 
           {/* AC / Speed / Initiative */}
-          <div className="flex gap-3 items-end">
+          <div className="flex items-stretch gap-2">
 
-            {/* AC — Shield */}
-            <div className="relative flex items-center justify-center" style={{ width: 76, height: 86 }}>
-              <svg viewBox="0 0 76 86" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4,4 L72,4 L72,46 L38,82 L4,46 Z"
-                  fill="#292524" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" />
-              </svg>
-              <div className="relative z-10 flex flex-col items-center" style={{ paddingBottom: 18 }}>
-                <span className="label text-xs text-center select-none">AC</span>
-                <input type="number"
-                  {...register('armor_class', {
-                    valueAsNumber: true,
-                    onBlur: e => {
-                      if (e.target.value === '') setValue('armor_class', autoAC, { shouldDirty: true })
-                    }
-                  })}
-                  placeholder={String(autoAC)}
-                  className="no-spinner bg-transparent text-stone-100 font-bold text-2xl text-center w-12 focus:outline-none font-sans placeholder:text-stone-500"
-                  disabled={readOnly} />
+            {/* AC — Shield, height-driven from siblings */}
+            <div className="flex-1 flex items-center justify-center">
+              <div className="relative" style={{ height: '100%', aspectRatio: '76 / 86' }}>
+                <svg viewBox="0 0 76 86" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M4,4 L72,4 L72,46 L38,82 L4,46 Z"
+                    fill="#292524" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-10" style={{ paddingBottom: '20%' }}>
+                  <span className="label text-xs text-center select-none">AC</span>
+                  <input type="number"
+                    {...register('armor_class', {
+                      valueAsNumber: true,
+                      onBlur: e => {
+                        if (e.target.value === '') setValue('armor_class', autoAC, { shouldDirty: true })
+                      }
+                    })}
+                    placeholder={String(autoAC)}
+                    className="no-spinner bg-transparent text-stone-100 font-bold text-2xl text-center w-12 focus:outline-none font-sans placeholder:text-stone-500"
+                    disabled={readOnly} />
+                </div>
               </div>
             </div>
 
             {/* Speed */}
-            <div className="stat-box flex flex-col items-center justify-center" style={{ minWidth: 72, height: 86 }}>
+            <div className="flex-1 stat-box flex flex-col items-center justify-center">
               <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾</div>
               <input type="number"
                 {...register('speed', { valueAsNumber: true })}
@@ -1033,7 +1050,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </div>
 
             {/* Initiative */}
-            <div className="stat-box flex flex-col items-center justify-center" style={{ minWidth: 72, height: 86 }}>
+            <div className="flex-1 stat-box flex flex-col items-center justify-center">
               <div className="label text-xs text-center">Initiative</div>
               <input type="number"
                 {...register('initiative_bonus', {

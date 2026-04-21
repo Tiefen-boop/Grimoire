@@ -86,6 +86,23 @@ function NumberInput({ label, name, register, small }) {
 
 const SPELL_SCHOOLS = ['Abjuration','Conjuration','Divination','Enchantment','Evocation','Illusion','Necromancy','Transmutation']
 
+const SPELL_FILTERS_GENERAL = [
+  { key: 'action',   label: 'Action',       accepts: (sp)      => /^(1 )?action$/i.test((sp.cast_time || '').trim()) },
+  { key: 'bonus',    label: 'Bonus Action', accepts: (sp)      => /^(1 )?bonus action$/i.test((sp.cast_time || '').trim()) },
+  { key: 'prepared', label: 'Prepared',     accepts: (sp, lvl) => lvl === 0 || !!sp.prepared },
+  { key: 'ritual',   label: 'Ritual',       accepts: (sp)      => !!sp.ritual },
+  { key: 'vocal',    label: 'Vocal',        accepts: (sp)      => !!sp.comp_v },
+  { key: 'somatic',  label: 'Somatic',      accepts: (sp)      => !!sp.comp_s },
+]
+const SPELL_FILTERS_SCHOOLS = SPELL_SCHOOLS.map(s => ({ key: `school_${s}`, label: s, accepts: (sp) => sp.school === s }))
+const SPELL_FILTERS = [...SPELL_FILTERS_GENERAL, ...SPELL_FILTERS_SCHOOLS]
+
+const FILTER_STATE_CLASSES = {
+  0: 'bg-transparent text-stone-500 border-stone-700 hover:text-stone-400 hover:border-stone-500',
+  1: 'bg-blue-900/40 text-blue-300 border-blue-700 hover:bg-blue-900/60',
+  2: 'bg-red-900/40 text-red-300 border-red-700 hover:bg-red-900/60',
+}
+
 function SpellcastingBlock({ classIndex, castingAbility, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
   const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
@@ -94,6 +111,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   const [expandedSpells, setExpandedSpells] = useState(new Set())
   const [editingSpells,  setEditingSpells]  = useState(new Set())
   const [noSlotsModal,   setNoSlotsModal]   = useState(null) // { lvl }
+  const [filterStates,   setFilterStates]   = useState({})  // key → 1 (show) | 2 (hide)
   const prevSpellsLengthRef = useRef(0)
   const pendingNewSpell = useRef(false)
   const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
@@ -130,6 +148,24 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
     setExpandedSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n })
     removeSpell(i)
   }
+  function cycleFilter(key) {
+    setFilterStates(prev => {
+      const curr = prev[key] || 0
+      const next = (curr + 1) % 3
+      const updated = { ...prev }
+      if (next === 0) delete updated[key]
+      else updated[key] = next
+      return updated
+    })
+  }
+  const showFilters = SPELL_FILTERS.filter(f => filterStates[f.key] === 1)
+  const hideFilters = SPELL_FILTERS.filter(f => filterStates[f.key] === 2)
+  function spellVisible(sp, lvl) {
+    if (hideFilters.some(f => f.accepts(sp, lvl))) return false
+    if (showFilters.length > 0 && !showFilters.every(f => f.accepts(sp, lvl))) return false
+    return true
+  }
+
   function handleUseSlot(lvl) {
     const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
     if (left <= 0) { setNoSlotsModal({ lvl }); return }
@@ -150,10 +186,32 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
         <span className="text-stone-500 text-xs">{ABILITY_SHORT[castingAbility]} · Prof +{watchedProfBonus}</span>
       </div>
 
+      {/* Filters */}
+      <div className="flex flex-col gap-1 mb-3">
+        <div className="flex flex-wrap gap-1">
+          {SPELL_FILTERS_GENERAL.map(f => (
+            <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
+              className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {SPELL_FILTERS_SCHOOLS.map(f => (
+            <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
+              className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-1">
         {SPELL_LEVELS.map(lvl => {
           const c = SPELL_LEVEL_COLORS[lvl]
           const levelSpells = spellFields.map((f, i) => ({ field: f, i })).filter(({ i }) => (allSpells[i]?.level ?? 0) === lvl)
+          const visibleSpells = levelSpells.filter(({ field, i }) => editingSpells.has(field.id) || spellVisible(allSpells[i] || {}, lvl))
+          const isFiltering = showFilters.length > 0 || hideFilters.length > 0
           const isOpen = expandedLevels.has(lvl)
           return (
             <div key={lvl} className={`rounded-lg border ${c.ring} overflow-hidden`}>
@@ -195,7 +253,11 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                   </div>
                 )}
                 {levelSpells.length > 0 && (
-                  <span className={`text-xs ${c.text} opacity-50`}>({levelSpells.length})</span>
+                  <span className={`text-xs ${c.text} opacity-50`}>
+                    {isFiltering && visibleSpells.length !== levelSpells.length
+                      ? `${visibleSpells.length}/${levelSpells.length}`
+                      : levelSpells.length}
+                  </span>
                 )}
               </div>
 
@@ -205,7 +267,10 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                   {levelSpells.length === 0 && (
                     <p className="text-stone-600 text-xs italic px-3 py-2">No spells.</p>
                   )}
-                  {levelSpells.map(({ field, i }) => {
+                  {levelSpells.length > 0 && visibleSpells.length === 0 && (
+                    <p className="text-stone-600 text-xs italic px-3 py-2">No spells match the active filters.</p>
+                  )}
+                  {visibleSpells.map(({ field, i }) => {
                     const isEditingSpell  = editingSpells.has(field.id)
                     const isExpandedSpell = expandedSpells.has(field.id)
                     const sp = allSpells[i] || {}

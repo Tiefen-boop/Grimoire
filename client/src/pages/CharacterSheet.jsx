@@ -89,7 +89,21 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
     control, name: `classes.${classIndex}.spells`,
   })
   const [expandedLevels, setExpandedLevels] = useState(new Set(SPELL_LEVELS))
+  const [expandedSpells, setExpandedSpells] = useState(new Set())
+  const [editingSpells,  setEditingSpells]  = useState(new Set())
+  const [noSlotsModal,   setNoSlotsModal]   = useState(null) // { lvl }
+  const prevSpellsLengthRef = useRef(0)
+  const pendingNewSpell = useRef(false)
   const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
+
+  useEffect(() => {
+    if (pendingNewSpell.current && spellFields.length > prevSpellsLengthRef.current) {
+      const newId = spellFields[spellFields.length - 1].id
+      setEditingSpells(prev => new Set([...prev, newId]))
+      pendingNewSpell.current = false
+    }
+    prevSpellsLengthRef.current = spellFields.length
+  }, [spellFields.length])
 
   const abilityIdx  = ABILITIES.indexOf(castingAbility)
   const abilityMod  = abilityIdx >= 0 ? Math.floor(((watchedAbilities[abilityIdx] ?? 10) - 10) / 2) : 0
@@ -100,8 +114,24 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
     setExpandedLevels(prev => { const n = new Set(prev); n.has(lvl) ? n.delete(lvl) : n.add(lvl); return n })
   }
   function addSpellAtLevel(lvl) {
+    pendingNewSpell.current = true
     addSpell({ level: lvl, name: '', cast_time: '', range: '', prepared: false, description: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
+  }
+  function startEditSpell(fieldId) { setEditingSpells(prev => new Set([...prev, fieldId])) }
+  function stopEditSpell(fieldId)  { setEditingSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n }) }
+  function toggleExpandSpell(fieldId) {
+    setExpandedSpells(prev => { const n = new Set(prev); n.has(fieldId) ? n.delete(fieldId) : n.add(fieldId); return n })
+  }
+  function removeSpellByIndex(fieldId, i) {
+    setEditingSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n })
+    setExpandedSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n })
+    removeSpell(i)
+  }
+  function handleUseSlot(lvl) {
+    const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+    if (left <= 0) { setNoSlotsModal({ lvl }); return }
+    setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left - 1, { shouldDirty: true })
   }
 
   return (
@@ -125,12 +155,14 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
           const isOpen = expandedLevels.has(lvl)
           return (
             <div key={lvl} className={`rounded-lg border ${c.ring} overflow-hidden`}>
+              {/* Level header */}
               <div className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none ${c.header}`}
                 onClick={() => toggleLevel(lvl)}>
                 <ChevronDownIcon className={`w-4 h-4 ${c.text} shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
                 <span className={`text-sm font-semibold ${c.text} flex-1`}>{c.label}</span>
                 {lvl > 0 && (
-                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    <span className={`text-xs ${c.text} opacity-60`}>Slots:</span>
                     <input type="number" min={0}
                       {...register(`classes.${classIndex}.spell_slots.${lvl}.left`, {
                         valueAsNumber: true,
@@ -154,53 +186,108 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                       })}
                       className={`no-spinner w-8 bg-transparent border border-stone-700 rounded text-center text-xs p-0.5 ${c.text} focus:outline-none`}
                       disabled={readOnly} />
+                    <button type="button" onClick={() => handleUseSlot(lvl)}
+                      className={`text-xs px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                      Use slot
+                    </button>
                   </div>
                 )}
                 {levelSpells.length > 0 && (
                   <span className={`text-xs ${c.text} opacity-50`}>({levelSpells.length})</span>
                 )}
-                {!readOnly && (
-                  <button type="button"
-                    onClick={e => { e.stopPropagation(); addSpellAtLevel(lvl) }}
-                    className={`text-xs flex items-center gap-0.5 ${c.text} opacity-70 hover:opacity-100 px-1`}>
-                    <PlusIcon className="w-3.5 h-3.5" /> Add
-                  </button>
-                )}
               </div>
+
+              {/* Level body */}
               {isOpen && (
                 <div className="divide-y divide-stone-700/40">
                   {levelSpells.length === 0 && (
                     <p className="text-stone-600 text-xs italic px-3 py-2">No spells.</p>
                   )}
-                  {levelSpells.map(({ field, i }) => (
-                    <div key={field.id} className="px-3 py-2 space-y-1.5">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-center">
-                        <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input" placeholder="Spell name" disabled={readOnly} />
-                        <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input" placeholder="Cast time" disabled={readOnly} />
-                        <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input" placeholder="Range" disabled={readOnly} />
-                        <div className="flex gap-1 items-center">
-                          {lvl > 0 && (
-                            <label className="flex items-center gap-1 text-xs text-stone-400">
-                              <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} disabled={readOnly} className="accent-red-700" />
-                              Prep
-                            </label>
-                          )}
-                          {!readOnly && (
-                            <button type="button" onClick={() => removeSpell(i)} className="text-stone-500 hover:text-red-400 p-1 ml-auto">
-                              <TrashIcon className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                  {levelSpells.map(({ field, i }) => {
+                    const isEditingSpell  = editingSpells.has(field.id)
+                    const isExpandedSpell = expandedSpells.has(field.id)
+                    const sp = allSpells[i] || {}
+                    return (
+                      <div key={field.id}>
+                        {isEditingSpell && !readOnly ? (
+                          <div className="px-3 py-2 space-y-1.5">
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
+                              <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input w-28" placeholder="Cast time" />
+                              <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input w-24" placeholder="Range" />
+                              {lvl > 0 && (
+                                <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
+                                  <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
+                                  Prepared
+                                </label>
+                              )}
+                              <button type="button" onClick={() => stopEditSpell(field.id)}
+                                className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                <CheckIcon className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
+                                className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                <TrashIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <textarea {...register(`classes.${classIndex}.spells.${i}.description`)} className="input w-full resize-none text-sm"
+                              rows={2} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none"
+                              onClick={() => toggleExpandSpell(field.id)}>
+                              <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
+                              <span className="text-stone-100 text-sm flex-1 truncate min-w-0">
+                                {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                              </span>
+                              {lvl > 0 && sp.prepared && (
+                                <span className="text-xs bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded shrink-0">Prep</span>
+                              )}
+                              {sp.cast_time && <span className="text-xs text-stone-500 shrink-0">{sp.cast_time}</span>}
+                              {sp.range && <span className="text-xs text-stone-500 shrink-0">{sp.range}</span>}
+                              {!readOnly && (
+                                <>
+                                  <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
+                                    className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
+                                    <PencilIcon className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
+                                    className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
+                                    <TrashIcon className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                            {isExpandedSpell && sp.description && (
+                              <div className="px-4 pb-2 border-t border-stone-700/40 pt-1.5">
+                                <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <input {...register(`classes.${classIndex}.spells.${i}.description`)} className="input text-sm w-full" placeholder="Description (optional)" disabled={readOnly} />
+                    )
+                  })}
+                  {!readOnly && (
+                    <div className="px-3 py-2">
+                      <button type="button" onClick={() => addSpellAtLevel(lvl)}
+                        className={`text-xs flex items-center gap-0.5 ${c.text} opacity-70 hover:opacity-100`}>
+                        <PlusIcon className="w-3.5 h-3.5" /> Add {lvl === 0 ? 'cantrip' : 'spell'}
+                      </button>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
           )
         })}
       </div>
+
+      <Modal open={!!noSlotsModal} title="No slots remaining"
+        onCancel={() => setNoSlotsModal(null)}>
+        No {noSlotsModal ? SPELL_LEVEL_COLORS[noSlotsModal.lvl].label.toLowerCase() : ''} slots remaining.
+      </Modal>
     </div>
   )
 }
@@ -255,7 +342,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingClasses,  setEditingClasses]  = useState(new Set())
   const prevClassesLengthRef = useRef(0)
   const pendingNewClass      = useRef(false)
-  const [levelUpModal,    setLevelUpModal]    = useState(null) // { index, className }
+  const [levelUpModal,      setLevelUpModal]      = useState(null) // { index, className }
+  const [deleteClassModal,  setDeleteClassModal]  = useState(null) // { index, className, isSpellcaster }
 
   useEffect(() => {
     if (pendingNewFeature.current && featureFields.length > prevFeaturesLengthRef.current) {
@@ -333,8 +421,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   function startEditClass(fieldId) { setEditingClasses(prev => new Set([...prev, fieldId])) }
   function stopEditClass(fieldId)  { setEditingClasses(prev => { const n = new Set(prev); n.delete(fieldId); return n }) }
   function handleRemoveClass(i) {
+    const cls = allClasses[i] || {}
+    setDeleteClassModal({ index: i, className: cls.name || 'this class', isSpellcaster: !!cls.is_spellcaster, step: 1 })
+  }
+  function confirmRemoveClass() {
+    if (deleteClassModal.step === 1) {
+      setDeleteClassModal(prev => ({ ...prev, step: 2 }))
+      return
+    }
+    const i = deleteClassModal.index
     setEditingClasses(prev => { const n = new Set(prev); n.delete(classFields[i].id); return n })
     removeClass(i)
+    setDeleteClassModal(null)
   }
   function handleLevelUp(i) {
     setLevelUpModal({ index: i, className: allClasses[i]?.name || 'this class' })
@@ -916,7 +1014,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         if (!cls?.is_spellcaster || !cls?.casting_ability) return null
         return (
           <Section key={field.id}
-            title={<>SPELLCASTING <span className="text-stone-500 font-normal normal-case tracking-normal text-xs ml-1">({cls.name || 'Unknown'})</span></>}
+            title={<span className="flex items-baseline gap-1.5">SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
             defaultOpen={false}>
             <SpellcastingBlock
               classIndex={i}
@@ -1003,6 +1101,34 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <Section title="Notes" defaultOpen={false}>
         <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
+
+      {/* Delete class modal — step 1 */}
+      <Modal open={!!deleteClassModal && deleteClassModal.step === 1}
+        title="Remove class?"
+        onConfirm={confirmRemoveClass} onCancel={() => setDeleteClassModal(null)}
+        confirmLabel="Continue" danger>
+        {deleteClassModal?.isSpellcaster ? (
+          <>
+            <strong>{deleteClassModal.className}</strong> is a spellcasting class.{' '}
+            Removing it will permanently delete its entire spellbook and spell slot configuration.{' '}
+            <span className="text-red-400 font-medium">This cannot be undone.</span>
+          </>
+        ) : (
+          <>Are you sure you want to remove <strong>{deleteClassModal?.className}</strong> from this character?</>
+        )}
+      </Modal>
+
+      {/* Delete class modal — step 2 */}
+      <Modal open={!!deleteClassModal && deleteClassModal.step === 2}
+        title="Are you absolutely sure?"
+        onConfirm={confirmRemoveClass} onCancel={() => setDeleteClassModal(null)}
+        confirmLabel="Yes, delete it" danger>
+        This is your last chance.{' '}
+        {deleteClassModal?.isSpellcaster
+          ? <>All spells and slot data for <strong>{deleteClassModal.className}</strong> will be lost forever.</>
+          : <><strong>{deleteClassModal?.className}</strong> will be removed.</>
+        }
+      </Modal>
 
       {/* Level up modal */}
       <Modal open={!!levelUpModal} title="Level Up?"

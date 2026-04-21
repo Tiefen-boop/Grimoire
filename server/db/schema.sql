@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS characters (
   class TEXT NOT NULL DEFAULT '',
   subclass TEXT NOT NULL DEFAULT '',
   level INTEGER NOT NULL DEFAULT 1,
+  classes TEXT NOT NULL DEFAULT '[]',
   race TEXT NOT NULL DEFAULT '',
   background TEXT NOT NULL DEFAULT '',
   alignment TEXT NOT NULL DEFAULT '',

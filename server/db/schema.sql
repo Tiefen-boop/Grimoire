@@ -107,6 +107,13 @@ CREATE TABLE IF NOT EXISTS characters (
   -- Conditions (JSON array)
   conditions TEXT NOT NULL DEFAULT '[]',
 
+  -- Exhaustion level (0–6)
+  exhaustion INTEGER NOT NULL DEFAULT 0,
+
+  -- Base values saved before condition effects are applied (NULL = no effect active)
+  speed_base INTEGER,
+  max_hp_base INTEGER,
+
   -- Features list (JSON array of {name, description})
   features_list TEXT NOT NULL DEFAULT '[]',
 

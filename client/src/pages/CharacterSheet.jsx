@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
+import { evalFormula } from '../utils/formulaEval'
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -48,10 +49,104 @@ const SPELL_LEVEL_COLORS = [
   { label: '8th Level', ring: 'border-orange-700',   header: 'bg-orange-950',   text: 'text-orange-300'  },
   { label: '9th Level', ring: 'border-amber-600',    header: 'bg-amber-950',    text: 'text-amber-300'   },
 ]
-const CONDITIONS = ['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious']
+const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious']
+const EXHAUSTION_DOT_COLORS = [
+  null,
+  { on: 'bg-yellow-400 border-yellow-300',   off: 'border-stone-600 hover:border-yellow-700' },
+  { on: 'bg-orange-400 border-orange-300',   off: 'border-stone-600 hover:border-orange-700' },
+  { on: 'bg-orange-600 border-orange-500',   off: 'border-stone-600 hover:border-orange-600' },
+  { on: 'bg-red-600   border-red-500',       off: 'border-stone-600 hover:border-red-600'    },
+  { on: 'bg-red-800   border-red-700',       off: 'border-stone-600 hover:border-red-700'    },
+  { on: 'bg-stone-950 border-red-900',       off: 'border-stone-600 hover:border-red-900'    },
+]
+const EXHAUSTION_EFFECTS = [
+  null,
+  'Level 1 — Disadvantage on all ability checks.',
+  'Level 2 — Speed halved. (+ all prior effects)',
+  'Level 3 — Disadvantage on attack rolls and saving throws. (+ all prior effects)',
+  'Level 4 — Hit point maximum halved. (+ all prior effects)',
+  'Level 5 — Speed reduced to 0. (+ all prior effects)',
+  'Level 6 — Death.',
+]
+
+const CONDITION_DESC = {
+  Blinded:       "Can't see. Attacks against you have advantage; your attacks have disadvantage. You automatically fail sight-based checks.",
+  Charmed:       "Can't attack the charmer or target them with harmful abilities/spells. The charmer has advantage on social checks against you.",
+  Deafened:      "Can't hear. Automatically fail hearing-based checks.",
+  Exhaustion:    "Cumulative levels (1–6) impose penalties: disadvantage on ability checks (1), halved speed (2), disadvantage on attacks & saves (3), halved HP max (4), speed 0 (5). At 6 you die.",
+  Frightened:    "Disadvantage on ability checks and attacks while you can see the source of fear. Can't willingly move closer to the source.",
+  Grappled:      "Speed becomes 0. Ends if the grappler is incapacitated, or if you're moved out of reach.",
+  Incapacitated: "Can't take actions or reactions.",
+  Invisible:     "Can't be seen without magic. Attacks against you have disadvantage; your attacks have advantage.",
+  Paralyzed:     "Incapacitated, can't move or speak. Auto-fail STR & DEX saves. Attacks against you have advantage. Any hit from within 5 ft is a critical hit.",
+  Petrified:     "Transformed into solid matter. Incapacitated, speed 0, unaware of surroundings. Resistance to all damage. Immune to poison and disease.",
+  Poisoned:      "Disadvantage on attack rolls and ability checks.",
+  Prone:         "Disadvantage on attacks. Attackers within 5 ft have advantage; others have disadvantage. Standing up costs half your speed.",
+  Restrained:    "Speed becomes 0. Attacks against you have advantage; your attacks have disadvantage. Disadvantage on DEX saves.",
+  Stunned:       "Incapacitated, can't move, can only speak falteringly. Auto-fail STR & DEX saves. Attacks against you have advantage.",
+  Unconscious:   "Incapacitated, can't move or speak, unaware of surroundings. Drop everything, fall prone. Auto-fail STR & DEX saves. Attacks have advantage; hits within 5 ft are crits.",
+}
 
 function mod(score) {
   return Math.floor((score - 10) / 2)
+}
+
+const HD_DIE_SIZES = [4, 6, 8, 10, 12, 20]
+
+function parseHitDice(str) {
+  if (!str) return []
+  return str.split('+').map(s => {
+    const m = s.trim().match(/^(\d+)[dD](\d+)$/)
+    return m ? { count: parseInt(m[1]), size: parseInt(m[2]) } : null
+  }).filter(Boolean)
+}
+
+function stringifyHitDice(dice) {
+  return dice.filter(d => d.count > 0)
+    .sort((a, b) => a.size - b.size)
+    .map(d => `${d.count}d${d.size}`)
+    .join('+')
+}
+
+function computeHitDice(classes) {
+  const counts = {}
+  for (const cls of classes) {
+    const m = String(cls.hit_die || '').match(/^(\d*)[dD](\d+)$/)
+    if (!m) continue
+    const size = m[2]
+    const perLevel = parseInt(m[1]) || 1
+    const count = perLevel * (parseInt(cls.level) || 0)
+    if (count > 0) counts[size] = (counts[size] || 0) + count
+  }
+  return Object.entries(counts)
+    .sort(([a], [b]) => parseInt(a) - parseInt(b))
+    .map(([s, c]) => `${c}d${s}`)
+    .join('+')
+}
+
+function cleanHitDiceInput(str) {
+  // Keep only valid ndm segments, drop free text / bare numbers
+  if (!str) return ''
+  return str.split(/[+,\s]+/).map(s => {
+    const m = s.trim().match(/^(\d+)[dD](\d+)$/)
+    return m && parseInt(m[1]) > 0 && parseInt(m[2]) > 0 ? `${m[1]}d${m[2]}` : null
+  }).filter(Boolean).join('+')
+}
+
+const CONDITION_CHAINS = {
+  Paralyzed:   ['Incapacitated'],
+  Petrified:   ['Incapacitated'],
+  Stunned:     ['Incapacitated'],
+  Unconscious: ['Incapacitated', 'Prone'],
+}
+
+const SPEED_ZERO_CONDITIONS = new Set(['Grappled', 'Paralyzed', 'Petrified', 'Restrained', 'Stunned', 'Unconscious'])
+
+function computeEffectiveSpeed(base, conditions, exhaustion) {
+  if (conditions.some(c => SPEED_ZERO_CONDITIONS.has(c))) return 0
+  if (exhaustion >= 5) return 0
+  if (exhaustion >= 2) return Math.floor(base / 2)
+  return base
 }
 function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
@@ -427,6 +522,96 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   )
 }
 
+function ExhaustionBlock({ watch, setValue, readOnly }) {
+  const [tooltip, setTooltip] = useState(null)
+  const exhaustion = watch('exhaustion') ?? 0
+
+  return (
+    <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
+      <div className="label text-xs">Exhaustion</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {[1,2,3,4,5,6].map(j => {
+          const isActive = exhaustion >= j
+          const colors   = EXHAUSTION_DOT_COLORS[j]
+          return (
+            <button key={j} type="button"
+              onClick={() => !readOnly && setValue('exhaustion', exhaustion >= j ? j - 1 : j, { shouldDirty: true })}
+              onMouseMove={e => setTooltip({ level: j, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setTooltip(null)}
+              className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors text-sm ${
+                isActive ? colors.on : `bg-transparent ${colors.off}`
+              }`}
+              disabled={readOnly}
+            >
+              {j === 6 && isActive && (
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-red-400">
+                  <path d="M12 2a7 7 0 0 0-7 7c0 2.56 1.37 4.8 3.42 6.03L8 17h8l-.42-1.97A7.001 7.001 0 0 0 12 2ZM9 17v1a1 1 0 0 0 1 1h1v1h2v-1h1a1 1 0 0 0 1-1v-1H9Z"/>
+                </svg>
+              )}
+            </button>
+          )
+        })}
+        {exhaustion > 0 && (
+          <span className="text-stone-500 text-xs ml-1">Lvl {exhaustion}</span>
+        )}
+      </div>
+
+      {tooltip && (
+        <div className="fixed z-50 pointer-events-none max-w-xs bg-stone-900 border border-stone-600 rounded-lg px-3 py-2 shadow-xl text-xs text-stone-300 leading-relaxed"
+          style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}>
+          <div className="font-semibold text-stone-100 mb-1">Exhaustion</div>
+          {EXHAUSTION_EFFECTS[tooltip.level]}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConditionsBlock({ watch, readOnly, onToggle }) {
+  const [tooltip, setTooltip] = useState(null)   // { name, x, y } for mouse tooltip
+  const activeConditions            = watch('conditions') || []
+
+
+  return (
+    <div>
+      <div className="label mb-2">Conditions</div>
+      <div className="flex flex-wrap gap-2">
+        {CONDITIONS.map(c => {
+          const active = activeConditions.includes(c)
+          return (
+            <button
+              key={c} type="button"
+              onClick={() => onToggle(c)}
+              onMouseMove={e => setTooltip({ name: c, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setTooltip(null)}
+              className={`px-2 py-1 rounded text-xs font-medium border transition-colors select-none ${
+                active
+                  ? 'bg-red-900 border-red-700 text-red-100'
+                  : 'bg-stone-800 border-stone-600 text-stone-400 hover:border-stone-500'
+              }`}
+              disabled={readOnly}
+            >
+              {c}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Mouse-follow tooltip (desktop only) */}
+      {tooltip && (
+        <div
+          className="fixed z-50 pointer-events-none max-w-xs bg-stone-900 border border-stone-600 rounded-lg px-3 py-2 shadow-xl text-xs text-stone-300 leading-relaxed"
+          style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}
+        >
+          <div className="font-semibold text-stone-100 mb-1">{tooltip.name}</div>
+          {CONDITION_DESC[tooltip.name]}
+        </div>
+      )}
+
+    </div>
+  )
+}
+
 export default function CharacterSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -451,7 +636,8 @@ export default function CharacterSheet() {
       character_backstory: '', allies_and_organizations: '',
       additional_features_and_traits: '', treasure: '',
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
-      passive_perception: 10, conditions: [], notes: '', features_list: [],
+      passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
+      speed_base: null, max_hp_base: null,
     }
   })
 
@@ -464,8 +650,11 @@ export default function CharacterSheet() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
+  const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
   const autoSaveTimer = useRef(null)
   const savedValuesRef = useRef(null)
+  const isInitialLoadRef   = useRef(false)
+  const prevEffectStateRef = useRef(null)
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
@@ -578,12 +767,85 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setLevelUpModal(null)
   }
 
+  function handleConditionToggle(conditionName) {
+    if (readOnly) return
+    const current = watch('conditions') || []
+    const isRemoving = current.includes(conditionName)
+    let newConditions = isRemoving
+      ? current.filter(c => c !== conditionName)
+      : [...current, conditionName]
+    if (!isRemoving && CONDITION_CHAINS[conditionName]) {
+      for (const chained of CONDITION_CHAINS[conditionName]) {
+        if (!newConditions.includes(chained)) newConditions = [...newConditions, chained]
+      }
+    }
+    setValue('conditions', newConditions, { shouldDirty: true })
+  }
+
   const watchedAbilities  = watch(ABILITIES)
   const watchedProfs      = watch('saving_throw_profs') || []
   const watchedSkillProfs = watch('skill_profs') || []
   const watchedSkillExp   = watch('skill_expertise') || []
   const watchedProfBonus  = watch('proficiency_bonus') ?? 0
   const allClasses        = watch('classes') || []
+
+  const watchedMaxHp  = watch('max_hp')     ?? 0
+  const watchedCurrHp = watch('current_hp') ?? 0
+  const watchedTempHp = watch('temp_hp')    ?? 0
+  const safeMax       = watchedMaxHp > 0 ? watchedMaxHp : 1
+  const tempOverflow  = watchedTempHp >= watchedMaxHp && watchedMaxHp > 0
+  const hpBarWidthPct = tempOverflow ? (watchedMaxHp / watchedTempHp) * 100 : 100
+  const redFillPct    = Math.min(watchedCurrHp, watchedMaxHp) / safeMax * hpBarWidthPct
+  const greenFillPct  = Math.min(watchedTempHp / safeMax, 1) * 100
+
+  const autoInitBonus = mod(watchedAbilities[1] ?? 10)
+
+  const autoAC = (() => {
+    const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
+    const charStats = {
+      strength: watchedAbilities[0], dexterity: watchedAbilities[1],
+      constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
+      wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
+      proficiency_bonus: watchedProfBonus
+    }
+    const body = equipped.filter(i => i.armor_category !== 'shield')
+    const shields = equipped.filter(i => i.armor_category === 'shield')
+    let base = 10
+    if (body.length > 0) {
+      const acs = body.map(i => parseFloat(evalFormula(i.ac_formula, charStats)) || 0)
+      base = Math.max(...acs)
+    }
+    const shieldBonus = shields.reduce((sum, i) => sum + (parseFloat(evalFormula(i.ac_formula, charStats)) || 0), 0)
+    return base + shieldBonus
+  })()
+
+  const watchedHdRemaining    = watch('hit_dice_remaining') || ''
+  const watchedDeathSuccesses = watch('death_save_successes') ?? 0
+  const watchedDeathFailures  = watch('death_save_failures')  ?? 0
+  const computedHitDice       = computeHitDice(allClasses)
+  const remainingDice         = parseHitDice(watchedHdRemaining)
+  const activeConditions      = watch('conditions') || []
+  const watchedExhaustion     = watch('exhaustion') ?? 0
+
+  function useHitDieOfSize(size) {
+    const updated = remainingDice.map(d => d.size === size ? { ...d, count: d.count - 1 } : d).filter(d => d.count > 0)
+    setValue('hit_dice_remaining', updated.length ? stringifyHitDice(updated) : '0', { shouldDirty: true })
+  }
+
+  // Normalize trailing/leading zeros in any number input across the sheet
+  useEffect(() => {
+    function normalizeNumber(e) {
+      const el = e.target
+      if (el.tagName !== 'INPUT' || el.type !== 'number' || !el.name) return
+      if (el.value === '' || el.value === '-') return
+      const n = parseFloat(el.value)
+      if (isNaN(n)) return
+      const normalized = String(n)
+      if (el.value !== normalized) setValue(el.name, n, { shouldDirty: true })
+    }
+    document.addEventListener('blur', normalizeNumber, true)
+    return () => document.removeEventListener('blur', normalizeNumber, true)
+  }, [setValue])
 
   // Auto-calculate proficiency bonus: 2 + floor((totalLevel - 1) / 4)
   useEffect(() => {
@@ -593,15 +855,93 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(allClasses.map(c => c.level))])
 
+  // Auto-sync hit_dice from class levels/hit_die; seed hit_dice_remaining when empty
+  useEffect(() => {
+    const computed = computeHitDice(allClasses)
+    setValue('hit_dice', computed)
+    const remaining = watch('hit_dice_remaining')
+    if (!remaining || remaining === '') setValue('hit_dice_remaining', computed)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(allClasses.map(c => [c.level, c.hit_die]))])
+
+  // Apply condition & exhaustion side-effects (speed, max HP)
+  useEffect(() => {
+    const prev = prevEffectStateRef.current
+    prevEffectStateRef.current = { conditions: activeConditions, exhaustion: watchedExhaustion }
+    if (prev === null) return                                               // skip mount with defaults
+    if (isInitialLoadRef.current) { isInitialLoadRef.current = false; return } // skip data-load reset
+
+    // --- Speed effects ---
+    const currSpeed   = watch('speed')
+    const speedBase   = watch('speed_base') ?? null  // null = no condition was active
+    const hasSpeedFx  = activeConditions.some(c => SPEED_ZERO_CONDITIONS.has(c)) || watchedExhaustion >= 2
+
+    if (hasSpeedFx) {
+      if (speedBase == null) {
+        // First activation: save current speed as base, then apply effect
+        setValue('speed_base', currSpeed, { shouldDirty: true })
+        const target = computeEffectiveSpeed(currSpeed, activeConditions, watchedExhaustion)
+        if (target !== currSpeed) setValue('speed', target, { shouldDirty: true })
+      } else {
+        // Already have a base: recompute target from it
+        const target = computeEffectiveSpeed(speedBase, activeConditions, watchedExhaustion)
+        if (target !== currSpeed) setValue('speed', target, { shouldDirty: true })
+      }
+    } else if (speedBase != null) {
+      // All speed effects just cleared: detect manual changes via prev state
+      const prevExpected = computeEffectiveSpeed(speedBase, prev.conditions, prev.exhaustion)
+      if (currSpeed !== prevExpected) {
+        // Speed was manually changed while a condition was active → keep it, just clear base
+        setValue('speed_base', null, { shouldDirty: true })
+      } else {
+        setValue('speed', speedBase, { shouldDirty: true })
+        setValue('speed_base', null, { shouldDirty: true })
+      }
+    }
+
+    // --- Max HP effects (exhaustion level 4 → halved) ---
+    const currMaxHp = watch('max_hp')
+    const hpBase    = watch('max_hp_base') ?? null
+
+    if (watchedExhaustion >= 4) {
+      if (hpBase == null) {
+        setValue('max_hp_base', currMaxHp, { shouldDirty: true })
+        const target = Math.max(1, Math.floor(currMaxHp / 2))
+        if (target !== currMaxHp) {
+          setValue('max_hp', target, { shouldDirty: true })
+          const currHp = watch('current_hp')
+          if (currHp > target) setValue('current_hp', target, { shouldDirty: true })
+        }
+      } else {
+        const target = Math.max(1, Math.floor(hpBase / 2))
+        if (target !== currMaxHp) {
+          setValue('max_hp', target, { shouldDirty: true })
+          const currHp = watch('current_hp')
+          if (currHp > target) setValue('current_hp', target, { shouldDirty: true })
+        }
+      }
+    } else if (hpBase != null) {
+      const prevExpected = prev.exhaustion >= 4 ? Math.max(1, Math.floor(hpBase / 2)) : hpBase
+      if (currMaxHp !== prevExpected) {
+        setValue('max_hp_base', null, { shouldDirty: true })
+      } else {
+        setValue('max_hp', hpBase, { shouldDirty: true })
+        setValue('max_hp_base', null, { shouldDirty: true })
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(activeConditions), watchedExhaustion])
+
   useEffect(() => {
     if (isNew) return
     api.get(`/characters/${id}`)
       .then(r => {
         const data = r.data
         // flatten spell_slots to form-friendly shape
+        isInitialLoadRef.current = true
         reset(data)
         savedValuesRef.current = JSON.stringify(data)
-        // check if current user owns it
+        setTempHpDisplayStr(data.temp_hp > 0 ? String(data.temp_hp) : '')
         if (data.owner_id !== user.id) setReadOnly(true)
       })
       .catch(() => navigate('/characters'))
@@ -665,10 +1005,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </h1>
         <div className="flex items-center gap-2">
           {error && <span className="text-red-400 text-sm">{error}</span>}
-          {saved && <span className="text-green-400 text-sm">Saved!</span>}
           {!readOnly && (
-            <button type="submit" disabled={isSubmitting} className="btn btn-primary">
-              {isSubmitting ? 'Saving…' : isNew ? 'Create' : 'Save'}
+            <button type="submit" disabled={isSubmitting}
+              className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
+              {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create' : 'Save'}
             </button>
           )}
           <button type="button" onClick={() => navigate('/characters')} className="btn btn-secondary">
@@ -709,7 +1049,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -728,6 +1068,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         <input {...register(`classes.${i}.name`)} className="input flex-1 min-w-28" placeholder="Class name" autoFocus={!cls.name} />
                         <input {...register(`classes.${i}.subclass`)} className="input flex-1 min-w-28" placeholder="Subclass (optional)" />
                         <input type="number" min={1} max={20} {...register(`classes.${i}.level`, { valueAsNumber: true })} className="input w-16" placeholder="Lvl" />
+                        <select {...register(`classes.${i}.hit_die`)} className="input w-20">
+                          <option value="">HD</option>
+                          {HD_DIE_SIZES.map(n => <option key={n} value={`d${n}`}>d{n}</option>)}
+                        </select>
                         <button type="button" onClick={() => stopEditClass(field.id)}
                           className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
                           <CheckIcon className="w-4 h-4" />
@@ -766,6 +1110,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                           className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40">
                           Level Up!
                         </button>
+                      )}
+                      {cls.hit_die && (
+                        <span className="text-xs text-stone-500 shrink-0">{cls.hit_die}</span>
                       )}
                       {cls.level > 0 && (
                         <span className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded shrink-0">Lv. {cls.level}</span>
@@ -898,65 +1245,212 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Combat */}
       <Section title="Combat">
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
-          {[
-            { label: 'AC', name: 'armor_class' },
-            { label: 'Initiative', name: 'initiative_bonus' },
-            { label: 'Speed', name: 'speed' },
-            { label: 'Max HP', name: 'max_hp' },
-            { label: 'Current HP', name: 'current_hp' },
-            { label: 'Temp HP', name: 'temp_hp' },
-          ].map(f => (
-            <div key={f.name} className="stat-box">
-              <div className="label text-xs text-center">{f.label}</div>
-              <input type="number" {...register(f.name, { valueAsNumber: true })}
-                className="input text-center text-lg font-bold p-1" disabled={readOnly} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+
+          {/* HP + Temp HP bars */}
+          <div className="flex flex-col gap-1">
+            {/* HP Bar */}
+            <div className="relative h-12 rounded-lg overflow-hidden bg-stone-900">
+              <div className="absolute inset-y-0 left-0 bg-red-700 transition-all duration-200 rounded-lg"
+                style={{ width: `${redFillPct}%` }} />
+              <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
+                <span className="text-red-200 font-semibold text-sm select-none">HP</span>
+                <input type="number"
+                  {...register('current_hp', {
+                    valueAsNumber: true,
+                    onChange: e => {
+                      const raw = e.target.value
+                      if (raw === '') { setValue('current_hp', 0, { shouldDirty: true }); return }
+                      const val = parseInt(raw)
+                      const max = parseInt(watch('max_hp')) || 0
+                      if (isNaN(val) || val < 0) setValue('current_hp', 0, { shouldDirty: true })
+                      else if (val > max) setValue('current_hp', max, { shouldDirty: true })
+                    }
+                  })}
+                  className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-right w-12 focus:outline-none font-sans"
+                  disabled={readOnly} />
+                <span className="text-stone-400 font-bold text-lg select-none">/</span>
+                <input type="number"
+                  {...register('max_hp', {
+                    valueAsNumber: true,
+                    onChange: e => {
+                      const raw = e.target.value
+                      if (raw === '') { setValue('max_hp', 0, { shouldDirty: true }); setValue('current_hp', 0, { shouldDirty: true }); return }
+                      const newMax = parseInt(raw) || 0
+                      const curr = parseInt(watch('current_hp')) || 0
+                      if (curr > newMax) setValue('current_hp', newMax, { shouldDirty: true })
+                    }
+                  })}
+                  className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-left w-12 focus:outline-none font-sans"
+                  disabled={readOnly} />
+              </div>
             </div>
-          ))}
+
+            {/* Temp HP Bar */}
+            <div className="relative h-10 rounded overflow-hidden bg-stone-900">
+              <div className="absolute inset-y-0 left-0 bg-green-700 transition-all duration-200 rounded"
+                style={{ width: `${greenFillPct}%` }} />
+              <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
+                {tempHpDisplayStr !== '' && (
+                  <span className="text-green-200 font-semibold text-xs select-none">Temp HP</span>
+                )}
+                <input type="number"
+                  value={tempHpDisplayStr}
+                  placeholder={tempHpDisplayStr === '' ? 'Temp HP' : ''}
+                  onChange={e => {
+                    const str = e.target.value
+                    if (str === '') {
+                      setTempHpDisplayStr('')
+                      setValue('temp_hp', 0, { shouldDirty: true })
+                    } else {
+                      const val = Math.max(0, parseInt(str) || 0)
+                      setTempHpDisplayStr(String(val))
+                      setValue('temp_hp', val, { shouldDirty: true })
+                    }
+                  }}
+                  className="no-spinner bg-transparent text-stone-100 text-sm font-bold text-center w-16 focus:outline-none font-sans placeholder:text-stone-500"
+                  disabled={readOnly} />
+              </div>
+            </div>
+          </div>
+
+          {/* AC / Speed / Initiative */}
+          <div className="flex items-stretch gap-2">
+
+            {/* AC — Shield, height-driven from siblings */}
+            <div className="flex-1 flex items-center justify-center">
+              <div className="relative" style={{ height: '100%', aspectRatio: '76 / 86' }}>
+                <svg viewBox="0 0 76 86" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M4,4 L72,4 L72,46 L38,82 L4,46 Z"
+                    fill="#292524" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-10" style={{ paddingBottom: '20%' }}>
+                  <span className="label text-xs text-center select-none">AC</span>
+                  <input type="number"
+                    {...register('armor_class', {
+                      valueAsNumber: true,
+                      onBlur: e => {
+                        if (e.target.value === '') setValue('armor_class', autoAC, { shouldDirty: true })
+                      }
+                    })}
+                    placeholder={String(autoAC)}
+                    className="no-spinner bg-transparent text-stone-100 font-bold text-2xl text-center w-12 focus:outline-none font-sans placeholder:text-stone-500"
+                    disabled={readOnly} />
+                </div>
+              </div>
+            </div>
+
+            {/* Speed */}
+            <div className="flex-1 stat-box flex flex-col items-center justify-center">
+              <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾</div>
+              <input type="number"
+                {...register('speed', { valueAsNumber: true })}
+                className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1"
+                disabled={readOnly} />
+            </div>
+
+            {/* Initiative */}
+            <div className="flex-1 stat-box flex flex-col items-center justify-center">
+              <div className="label text-xs text-center">Initiative</div>
+              <input type="number"
+                {...register('initiative_bonus', {
+                  valueAsNumber: true,
+                  onBlur: e => {
+                    if (e.target.value === '') setValue('initiative_bonus', autoInitBonus, { shouldDirty: true })
+                  }
+                })}
+                placeholder={autoInitBonus >= 0 ? `+${autoInitBonus}` : String(autoInitBonus)}
+                className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1 placeholder:text-stone-500"
+                disabled={readOnly} />
+            </div>
+
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          <div>
-            <label className="label">Hit Dice</label>
-            <input {...register('hit_dice')} className="input" placeholder="e.g. 5d8" disabled={readOnly} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+
+          {/* Hit Dice block */}
+          <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-2">
+            <div className="label text-xs">Hit Dice</div>
+            <div className="flex items-baseline gap-1.5 text-sm">
+              <span className="text-stone-400 text-xs shrink-0">Total:</span>
+              <span className="text-stone-100 font-semibold">{computedHitDice || <span className="text-stone-600 italic">—</span>}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-stone-400 text-xs shrink-0">Remaining:</span>
+              <input
+                {...register('hit_dice_remaining', {
+                  onBlur: e => {
+                    const cleaned = cleanHitDiceInput(e.target.value)
+                    const val = cleaned || computedHitDice
+                    setValue('hit_dice_remaining', val, { shouldDirty: true })
+                  }
+                })}
+                className="input text-sm py-0.5 flex-1 min-w-0"
+                placeholder={computedHitDice || 'e.g. 3d8'}
+                disabled={readOnly}
+              />
+            </div>
+            {!readOnly && remainingDice.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {remainingDice.map(({ count, size }) => (
+                  <button key={size} type="button"
+                    onClick={() => useHitDieOfSize(size)}
+                    className="btn btn-secondary btn-sm text-xs py-0.5 px-2">
+                    Use d{size} <span className="text-stone-500 ml-1">({count})</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div>
-            <label className="label">Hit Dice Remaining</label>
-            <input {...register('hit_dice_remaining')} className="input" placeholder="e.g. 3d8" disabled={readOnly} />
+
+          {/* Death Saving Throws block */}
+          <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="label text-xs">Death Saving Throws</div>
+              {!readOnly && (() => {
+                const hasMarks = watchedDeathSuccesses > 0 || watchedDeathFailures > 0
+                return (
+                  <button type="button"
+                    onClick={() => { if (hasMarks) { setValue('death_save_successes', 0, { shouldDirty: true }); setValue('death_save_failures', 0, { shouldDirty: true }) } }}
+                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${hasMarks ? 'border-fuchsia-600 text-fuchsia-400 hover:bg-fuchsia-900/30 cursor-pointer' : 'border-stone-700 text-stone-600 cursor-default'}`}>
+                    Reset
+                  </button>
+                )
+              })()}
+            </div>
+            {[
+              { label: 'Successes', field: 'death_save_successes', watched: watchedDeathSuccesses, activeClass: 'bg-green-500 border-green-400' },
+              { label: 'Failures',  field: 'death_save_failures',  watched: watchedDeathFailures,  activeClass: 'bg-red-500 border-red-400' },
+            ].map(({ label, field, watched, activeClass }) => (
+              <div key={field} className="flex items-center gap-3">
+                <span className="text-stone-400 text-xs w-16 shrink-0">{label}</span>
+                <div className="flex gap-2">
+                  {[1, 2, 3].map(j => (
+                    <button key={j} type="button"
+                      onClick={() => !readOnly && setValue(field, watched >= j ? j - 1 : j, { shouldDirty: true })}
+                      className={`w-6 h-6 rounded-full border-2 transition-colors ${
+                        watched >= j ? activeClass : 'bg-transparent border-stone-600 hover:border-stone-400'
+                      }`}
+                      disabled={readOnly}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-          <div>
-            <label className="label">Death Save Successes</label>
-            <input type="number" min={0} max={3} {...register('death_save_successes', { valueAsNumber: true })} className="input" disabled={readOnly} />
-          </div>
-          <div>
-            <label className="label">Death Save Failures</label>
-            <input type="number" min={0} max={3} {...register('death_save_failures', { valueAsNumber: true })} className="input" disabled={readOnly} />
-          </div>
+
+          {/* Exhaustion block */}
+          <ExhaustionBlock watch={watch} setValue={setValue} readOnly={readOnly} />
+
         </div>
 
         {/* Conditions */}
-        <div>
-          <div className="label mb-2">Conditions</div>
-          <div className="flex flex-wrap gap-2">
-            {CONDITIONS.map(c => {
-              const active = (watch('conditions') || []).includes(c)
-              return (
-                <button
-                  key={c} type="button"
-                  onClick={() => !readOnly && toggleArrayValue('conditions', c)}
-                  className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
-                    active
-                      ? 'bg-red-900 border-red-700 text-red-100'
-                      : 'bg-stone-800 border-stone-600 text-stone-400 hover:border-stone-500'
-                  }`}
-                  disabled={readOnly}
-                >
-                  {c}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <ConditionsBlock
+          watch={watch}
+          readOnly={readOnly}
+          onToggle={handleConditionToggle}
+        />
       </Section>
 
       {/* Attacks */}
@@ -1285,9 +1779,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       {!readOnly && (
         <div className="flex justify-end gap-2 mt-2">
           {error && <span className="text-red-400 text-sm self-center">{error}</span>}
-          {saved && <span className="text-green-400 text-sm self-center">Saved!</span>}
-          <button type="submit" disabled={isSubmitting} className="btn btn-primary">
-            {isSubmitting ? 'Saving…' : isNew ? 'Create Character' : 'Save Changes'}
+          <button type="submit" disabled={isSubmitting}
+            className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
+            {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create Character' : 'Save Changes'}
           </button>
         </div>
       )}

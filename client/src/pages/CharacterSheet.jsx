@@ -107,14 +107,21 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
   })
-  const [expandedLevels, setExpandedLevels] = useState(new Set(SPELL_LEVELS))
+  const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
+
+  const [expandedLevels, setExpandedLevels] = useState(() => {
+    const occupied = new Set(allSpells.map(sp => sp?.level ?? 0))
+    return new Set(SPELL_LEVELS.filter(lvl => occupied.has(lvl)))
+  })
   const [expandedSpells, setExpandedSpells] = useState(new Set())
   const [editingSpells,  setEditingSpells]  = useState(new Set())
-  const [noSlotsModal,   setNoSlotsModal]   = useState(null) // { lvl }
-  const [filterStates,   setFilterStates]   = useState({})  // key → 1 (show) | 2 (hide)
+  const [noSlotsModal,   setNoSlotsModal]   = useState(null)
+  const [filterStates,   setFilterStates]   = useState(() => {
+    try { const s = localStorage.getItem('grimoire_spell_filters'); return s ? JSON.parse(s) : {} }
+    catch { return {} }
+  })
   const prevSpellsLengthRef = useRef(0)
   const pendingNewSpell = useRef(false)
-  const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
 
   useEffect(() => {
     if (pendingNewSpell.current && spellFields.length > prevSpellsLengthRef.current) {
@@ -155,6 +162,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
       const updated = { ...prev }
       if (next === 0) delete updated[key]
       else updated[key] = next
+      try { localStorage.setItem('grimoire_spell_filters', JSON.stringify(updated)) } catch {}
       return updated
     })
   }
@@ -339,35 +347,40 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                         ) : (
                           <div>
                             {/* View mode header row */}
-                            <div className="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none"
+                            <div className="flex items-start gap-1.5 px-3 py-2 cursor-pointer select-none"
                               onClick={() => toggleExpandSpell(field.id)}>
-                              <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
-                              <span className="text-stone-100 text-sm truncate min-w-0">
-                                {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
-                              </span>
-                              {sp.ritual && <span className="text-stone-500 text-xs shrink-0 italic">(ritual)</span>}
-                              {lvl > 0 && (
-                                <button type="button"
-                                  onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
-                                  className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
-                                  Prep
-                                </button>
-                              )}
-                              <span className="flex-1" />
-                              {sp.cast_time && <span className="text-xs text-stone-500 shrink-0">{sp.cast_time}</span>}
-                              {sp.range && <span className="text-xs text-stone-500 shrink-0">{sp.range}</span>}
-                              {!readOnly && (
-                                <>
-                                  <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
-                                    className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
-                                    <PencilIcon className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
-                                    className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
-                                    <TrashIcon className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
+                              <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-stone-100 text-sm break-words">
+                                  {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                </div>
+                                {sp.ritual && (
+                                  <div className="text-stone-500 text-xs italic">(ritual)</div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                  {lvl > 0 && (
+                                    <button type="button"
+                                      onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
+                                      className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
+                                      Prep
+                                    </button>
+                                  )}
+                                  {sp.cast_time && <span className="text-xs text-stone-500">{sp.cast_time}</span>}
+                                  {sp.range && <span className="text-xs text-stone-500">{sp.range}</span>}
+                                  {!readOnly && (
+                                    <>
+                                      <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
+                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700">
+                                        <PencilIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
+                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700">
+                                        <TrashIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                             {/* Expanded content */}
                             {isExpandedSpell && hasExpandedContent && (

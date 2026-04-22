@@ -195,20 +195,43 @@ function checkArmorProficiency(item, armorProfs) {
 function SubSection({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border border-stone-700 rounded-lg overflow-hidden mb-2">
+    <div className="border border-stone-700 rounded-lg mb-2">
       <button type="button" onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-stone-800 text-sm font-semibold text-stone-300 cursor-pointer select-none uppercase tracking-wide">
+        className={`w-full flex items-center justify-between px-3 py-2 bg-stone-800 text-sm font-semibold text-stone-300 cursor-pointer select-none uppercase tracking-wide ${open ? 'rounded-t-lg' : 'rounded-lg'}`}>
         {title}
         <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${open ? '' : '-rotate-90'}`} />
       </button>
-      {open && <div className="p-3">{children}</div>}
+      {open && <div className="p-3 rounded-b-lg">{children}</div>}
     </div>
   )
 }
 
 function ProfTagInput({ label, items, selected, onChange, readOnly, placeholder }) {
   const [search, setSearch] = useState('')
+  const [activeIndex, setActiveIndex] = useState(-1)
   const filtered = items.filter(x => x.toLowerCase().includes(search.toLowerCase()) && !selected.includes(x))
+
+  function handleKeyDown(e) {
+    if (!search && filtered.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex(i => Math.min(i + 1, filtered.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex(i => Math.max(i - 1, -1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (activeIndex >= 0 && filtered[activeIndex]) {
+        onChange([...selected, filtered[activeIndex]])
+        setSearch('')
+        setActiveIndex(-1)
+      }
+    } else if (e.key === 'Escape') {
+      setSearch('')
+      setActiveIndex(-1)
+    }
+  }
+
   return (
     <div>
       {label && <div className="label text-xs mb-1">{label}</div>}
@@ -229,14 +252,16 @@ function ProfTagInput({ label, items, selected, onChange, readOnly, placeholder 
       )}
       {!readOnly && (
         <div className="relative">
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" value={search}
+            onChange={e => { setSearch(e.target.value); setActiveIndex(-1) }}
+            onKeyDown={handleKeyDown}
             className="input text-sm" placeholder={placeholder || 'Search...'} />
           {search && filtered.length > 0 && (
             <div className="absolute z-20 top-full left-0 right-0 bg-stone-800 border border-stone-600 rounded mt-1 max-h-40 overflow-y-auto shadow-xl">
-              {filtered.map(item => (
+              {filtered.map((item, idx) => (
                 <button type="button" key={item}
-                  onClick={() => { onChange([...selected, item]); setSearch('') }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-stone-200 hover:bg-stone-700">
+                  onClick={() => { onChange([...selected, item]); setSearch(''); setActiveIndex(-1) }}
+                  className={`w-full text-left px-3 py-1.5 text-sm text-stone-200 ${idx === activeIndex ? 'bg-stone-600' : 'hover:bg-stone-700'}`}>
                   {item}
                 </button>
               ))}
@@ -249,6 +274,55 @@ function ProfTagInput({ label, items, selected, onChange, readOnly, placeholder 
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function FreeTagInput({ label, selected, onChange, readOnly, placeholder }) {
+  const [input, setInput] = useState('')
+
+  function addTag(value) {
+    const trimmed = value.trim().replace(/,$/, '').trim()
+    if (trimmed && !selected.includes(trimmed)) {
+      onChange([...selected, trimmed])
+    }
+    setInput('')
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addTag(input)
+    } else if (e.key === 'Backspace' && !input && selected.length > 0) {
+      onChange(selected.slice(0, -1))
+    }
+  }
+
+  return (
+    <div>
+      {label && <div className="label text-xs mb-1">{label}</div>}
+      <div className="input flex flex-wrap gap-1 min-h-[2.5rem] cursor-text" onClick={e => e.currentTarget.querySelector('input')?.focus()}>
+        {selected.map(s => (
+          <span key={s} className="flex items-center gap-0.5 bg-stone-700 text-stone-200 text-xs px-2 py-0.5 rounded border border-stone-600 self-center">
+            {s}
+            {!readOnly && (
+              <button type="button" onClick={() => onChange(selected.filter(x => x !== s))}
+                className="ml-0.5 text-stone-400 hover:text-red-400">
+                <XMarkIcon className="w-3 h-3" />
+              </button>
+            )}
+          </span>
+        ))}
+        {!readOnly && (
+          <input type="text" value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => { if (input.trim()) addTag(input) }}
+            className="bg-transparent flex-1 min-w-20 text-sm text-stone-200 focus:outline-none self-center"
+            placeholder={selected.length === 0 ? (placeholder || 'Type and press Enter…') : ''}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -975,7 +1049,7 @@ export default function CharacterSheet() {
       passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
       speed_base: null, max_hp_base: null,
       unarmed_attack_modifier: '', unarmed_damage_roll: '',
-      weapon_profs: [], armor_profs: [], tool_profs: [],
+      weapon_profs: [], armor_profs: [], tool_profs: [], languages: [],
     }
   })
 
@@ -1129,6 +1203,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchedWeaponProfs = watch('weapon_profs') || []
   const watchedArmorProfs  = watch('armor_profs')  || []
   const watchedToolProfs   = watch('tool_profs')   || []
+  const watchedLanguages   = watch('languages')    || []
   const allClasses        = watch('classes') || []
 
   const watchedMaxHp  = watch('max_hp')     ?? 0
@@ -2196,8 +2271,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </SubSection>
 
         <SubSection title="Languages" defaultOpen={false}>
-          <textarea rows={4} {...register('other_proficiencies')} className="input resize-none w-full" disabled={readOnly}
-            placeholder="Languages known (e.g. Common, Elvish, Draconic...)" />
+          <FreeTagInput
+            selected={watchedLanguages}
+            onChange={next => setValue('languages', next, { shouldDirty: true })}
+            readOnly={readOnly}
+            placeholder="Type a language and press Enter…"
+          />
         </SubSection>
 
       </Section>
@@ -2252,6 +2331,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         <div className="mt-3">
           <label className="label">Features & Traits</label>
           <textarea rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
+        </div>
+        <div className="mt-3">
+          <label className="label">Other Proficiencies & Languages</label>
+          <textarea rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Additional Features & Traits</label>

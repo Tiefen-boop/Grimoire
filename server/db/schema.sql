@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS characters (
   weapon_profs TEXT NOT NULL DEFAULT '[]',
   armor_profs TEXT NOT NULL DEFAULT '[]',
   tool_profs TEXT NOT NULL DEFAULT '[]',
+  languages TEXT NOT NULL DEFAULT '[]',
 
   -- Notes
   notes TEXT NOT NULL DEFAULT '',

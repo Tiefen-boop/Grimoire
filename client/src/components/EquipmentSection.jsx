@@ -20,6 +20,23 @@ const WEAPON_SPECIFIC = {
   'martial-ranged': ['Blowgun', 'Hand Crossbow', 'Heavy Crossbow', 'Longbow', 'Net'],
 }
 
+const WEAPON_BY_NAME = {}
+for (const [key, weapons] of Object.entries(WEAPON_SPECIFIC)) {
+  const [cls, range] = key.split('-')
+  for (const w of weapons) {
+    WEAPON_BY_NAME[w.toLowerCase()] = { weapon_class: cls, weapon_range: range, weapon_specific: w }
+  }
+}
+function detectWeaponType(name) {
+  if (!name) return null
+  const lower = name.toLowerCase()
+  let best = null, bestLen = 0
+  for (const [wName, data] of Object.entries(WEAPON_BY_NAME)) {
+    if (lower.includes(wName) && wName.length > bestLen) { best = data; bestLen = wName.length }
+  }
+  return best
+}
+
 const ARMOR_CATEGORIES = [
   { value: 'light',   label: 'Light Armor' },
   { value: 'medium',  label: 'Medium Armor' },
@@ -65,6 +82,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
   const [expanded, setExpanded]   = useState(new Set())
   const [editing, setEditing]     = useState(new Set())
+  const [weaponErrors, setWeaponErrors] = useState(new Set())
 
   useEffect(() => {
     onEditingChange?.(editing.size > 0)
@@ -287,7 +305,18 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                       <div className="p-2 space-y-2">
                         {/* Base row */}
                         <div className="flex gap-2 flex-wrap items-center">
-                          <input {...register(`equipment.${i}.name`)} className="input flex-1 min-w-32"
+                          <input {...register(`equipment.${i}.name`, {
+                            onChange: e => {
+                              if (cat.type !== 'weapon') return
+                              setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                              const match = detectWeaponType(e.target.value)
+                              if (match) {
+                                setValue(`equipment.${i}.weapon_class`,    match.weapon_class,    { shouldDirty: true })
+                                setValue(`equipment.${i}.weapon_range`,    match.weapon_range,    { shouldDirty: true })
+                                setValue(`equipment.${i}.weapon_specific`, match.weapon_specific, { shouldDirty: true })
+                              }
+                            }
+                          })} className="input flex-1 min-w-32"
                             placeholder="Name" autoFocus={!item.name} />
                           <input {...register(`equipment.${i}.price`)} className="input w-24" placeholder="Price" />
                           <div className="flex items-center shrink-0">
@@ -297,7 +326,15 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <button type="button" onClick={() => adjustAmount(i, 1)}
                               className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-r-lg text-stone-200 text-sm leading-none">+</button>
                           </div>
-                          <button type="button" onClick={() => stopEdit(field.id)}
+                          <button type="button"
+                            onClick={() => {
+                              if (cat.type === 'weapon' && !item.weapon_specific) {
+                                setWeaponErrors(prev => new Set([...prev, field.id]))
+                                return
+                              }
+                              setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                              stopEdit(field.id)
+                            }}
                             className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
                             <CheckIcon className="w-4 h-4" />
                           </button>
@@ -321,13 +358,18 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               })} className="input w-28">
                                 {WEAPON_RANGE.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                               </select>
-                              <select {...register(`equipment.${i}.weapon_specific`)} className="input w-44">
+                              <select {...register(`equipment.${i}.weapon_specific`, {
+                                onChange: () => setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                              })} className={`input w-44 ${weaponErrors.has(field.id) ? 'border-red-500' : ''}`}>
                                 <option value="">— type —</option>
                                 {(WEAPON_SPECIFIC[`${item.weapon_class || 'simple'}-${item.weapon_range || 'melee'}`] || []).map(w => (
                                   <option key={w} value={w}>{w}</option>
                                 ))}
                               </select>
                             </div>
+                            {weaponErrors.has(field.id) && (
+                              <p className="text-red-400 text-xs">Select a specific weapon type before saving.</p>
+                            )}
                             <div className="flex gap-2 flex-wrap">
                               <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1 min-w-36"
                                 placeholder="Attack modifier (e.g. STR+prof)" />

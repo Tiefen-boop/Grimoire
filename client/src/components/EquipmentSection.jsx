@@ -311,9 +311,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
                               const match = detectWeaponType(e.target.value)
                               if (match) {
-                                setValue(`equipment.${i}.weapon_class`,    match.weapon_class,    { shouldDirty: true })
-                                setValue(`equipment.${i}.weapon_range`,    match.weapon_range,    { shouldDirty: true })
-                                setValue(`equipment.${i}.weapon_specific`, match.weapon_specific, { shouldDirty: true })
+                                setValue(`equipment.${i}.weapon_class`, match.weapon_class, { shouldDirty: true })
+                                setValue(`equipment.${i}.weapon_range`, match.weapon_range, { shouldDirty: true })
+                                // Defer specific until after options re-render with correct class/range
+                                setTimeout(() => setValue(`equipment.${i}.weapon_specific`, match.weapon_specific, { shouldDirty: true }), 0)
                               }
                             }
                           })} className="input flex-1 min-w-32"

@@ -11,6 +11,15 @@ import { evalFormula } from '../utils/formulaEval'
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
 
+const ABILITY_COLORS = {
+  strength:     { border: 'border-red-700',    text: 'text-red-300',    dot: 'bg-red-400',    label: 'text-red-400'    },
+  dexterity:    { border: 'border-green-700',  text: 'text-green-300',  dot: 'bg-green-400',  label: 'text-green-400'  },
+  constitution: { border: 'border-orange-700', text: 'text-orange-300', dot: 'bg-orange-400', label: 'text-orange-400' },
+  intelligence: { border: 'border-blue-700',   text: 'text-blue-300',   dot: 'bg-blue-400',   label: 'text-blue-400'   },
+  wisdom:       { border: 'border-teal-700',   text: 'text-teal-300',   dot: 'bg-teal-400',   label: 'text-teal-400'   },
+  charisma:     { border: 'border-violet-700', text: 'text-violet-300', dot: 'bg-violet-400', label: 'text-violet-400' },
+}
+
 const SKILLS = [
   { name: 'Acrobatics', ability: 'dexterity' },
   { name: 'Animal Handling', ability: 'wisdom' },
@@ -1133,6 +1142,8 @@ export default function CharacterSheet() {
   const [maxHpDisplay,  setMaxHpDisplay]  = useState(null)
   const currHpFocused = useRef(false)
   const maxHpFocused  = useRef(false)
+  const [abilityDisplay, setAbilityDisplay] = useState({})
+  const abilityFocusedRef = useRef(null)
   const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
   const [concentrationLostPrompt, setConcentrationLostPrompt] = useState(null)
   const autoSaveTimer = useRef(null)
@@ -1676,61 +1687,92 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Ability Scores & Derived */}
       <Section title="Ability Scores">
+        {/* Ability score blocks */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
-          {ABILITIES.map((ability, i) => (
-            <div key={ability} className="stat-box">
-              <div className="text-xs text-stone-400 uppercase tracking-wider mb-1">{ABILITY_SHORT[ability]}</div>
-              <input
-                type="number" min={1} max={30}
-                {...register(ability, { valueAsNumber: true })}
-                className="input text-center text-xl font-bold p-1 mb-1"
-                disabled={readOnly}
-              />
-              <div className="text-stone-300 text-sm font-medium">{fmtMod(mod(watchedAbilities[i] || 10))}</div>
-            </div>
-          ))}
+          {ABILITIES.map((ability, i) => {
+            const c = ABILITY_COLORS[ability]
+            return (
+              <div key={ability} className={`stat-box border ${c.border} text-center`}>
+                <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${c.label}`}>{ABILITY_SHORT[ability]}</div>
+                <input
+                  type="text" inputMode="numeric"
+                  value={abilityFocusedRef.current === ability ? (abilityDisplay[ability] ?? '') : (watchedAbilities[i] ?? 10)}
+                  onFocus={() => { abilityFocusedRef.current = ability; setAbilityDisplay(p => ({ ...p, [ability]: String(watchedAbilities[i] ?? 10) })) }}
+                  onChange={e => setAbilityDisplay(p => ({ ...p, [ability]: e.target.value }))}
+                  onBlur={() => {
+                    abilityFocusedRef.current = null
+                    const raw = (abilityDisplay[ability] ?? '').trim()
+                    const prev = watchedAbilities[i] ?? 10
+                    if (!raw) { setAbilityDisplay(p => ({ ...p, [ability]: null })); return }
+                    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+                    let result = leadingOp ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`) : parseArithExpr(raw)
+                    if (result === null) result = prev
+                    const final = Math.min(30, Math.max(1, Math.round(result)))
+                    setValue(ability, final, { shouldDirty: true })
+                    setAbilityDisplay(p => ({ ...p, [ability]: null }))
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                  className={`no-spinner bg-transparent text-center text-2xl font-bold w-full focus:outline-none py-0.5 mb-0.5 ${c.text}`}
+                  disabled={readOnly}
+                />
+                <div className={`text-sm font-semibold ${c.text} opacity-80`}>{fmtMod(mod(watchedAbilities[i] || 10))}</div>
+              </div>
+            )
+          })}
         </div>
 
-        {/* Saving Throws + Passive Perception */}
+        {/* Saving Throws + Passive scores */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
             <div className="label mb-2">Saving Throws</div>
-            <div className="space-y-1">
-              {ABILITIES.map(ability => (
-                <label key={ability} className="flex items-center gap-2 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={watchedProfs.includes(ability)}
-                    onChange={() => !readOnly && toggleArrayValue('saving_throw_profs', ability)}
-                    className="rounded accent-red-700"
-                    disabled={readOnly}
-                  />
-                  <span className="text-stone-300 text-sm flex-1">{ABILITY_SHORT[ability]}</span>
-                  <span className="text-stone-400 text-sm w-8 text-right">{fmtMod(getSavingThrow(ability))}</span>
-                </label>
-              ))}
+            <div className="space-y-0.5">
+              {ABILITIES.map(ability => {
+                const c = ABILITY_COLORS[ability]
+                const isProficient = watchedProfs.includes(ability)
+                return (
+                  <div key={ability}
+                    className="flex items-center gap-2 cursor-pointer py-1 rounded px-1 hover:bg-stone-800/60 transition-colors"
+                    onClick={() => !readOnly && toggleArrayValue('saving_throw_profs', ability)}>
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 transition-colors ${isProficient ? `${c.dot} border-transparent` : 'bg-transparent border-stone-600'}`} />
+                    <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{ABILITY_SHORT[ability]}</span>
+                    <span className={`text-sm w-8 text-right tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
-          <div>
-            <div className="label mb-2">Passive Perception</div>
-            <input type="number" {...register('passive_perception', { valueAsNumber: true })}
-              className="input w-24" disabled={readOnly} />
+          <div className="flex flex-col gap-3 justify-start">
+            {(() => {
+              const passivePerception = 10 + getSkillBonus(SKILLS.find(s => s.name === 'Perception'))
+              const passiveInsight    = 10 + getSkillBonus(SKILLS.find(s => s.name === 'Insight'))
+              return (
+                <>
+                  <div className={`stat-box border ${ABILITY_COLORS.wisdom.border} text-center`}>
+                    <div className="label text-xs text-center">Passive Perception</div>
+                    <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS.wisdom.text}`}>{passivePerception}</div>
+                  </div>
+                  <div className={`stat-box border ${ABILITY_COLORS.wisdom.border} text-center`}>
+                    <div className="label text-xs text-center">Passive Insight</div>
+                    <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS.wisdom.text}`}>{passiveInsight}</div>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
 
         {/* Skills */}
         <div className="border-t border-stone-700 pt-3">
-          <div className="label mb-2">Skills <span className="font-normal text-stone-500 text-xs">(🔴 proficient · 🟡 expertise)</span></div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+          <div className="label mb-2">Skills <span className="font-normal text-stone-500 text-xs">(● proficient · ◆ expertise)</span></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
             {SKILLS.map(skill => {
               const isProficient = watchedSkillProfs.includes(skill.name)
               const isExpert = watchedSkillExp.includes(skill.name)
+              const c = ABILITY_COLORS[skill.ability]
               return (
-                <label key={skill.name} className="flex items-center gap-2 cursor-pointer py-0.5">
-                  <input
-                    type="checkbox"
-                    checked={isProficient}
-                    onChange={() => {
+                <div key={skill.name} className="flex items-center gap-2 py-1 px-1 rounded hover:bg-stone-800/60 transition-colors">
+                  <button type="button" disabled={readOnly}
+                    onClick={() => {
                       if (readOnly) return
                       if (isProficient && isExpert) {
                         toggleArrayValue('skill_expertise', skill.name)
@@ -1739,21 +1781,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         toggleArrayValue('skill_profs', skill.name)
                       }
                     }}
-                    className="rounded accent-red-700"
-                    disabled={readOnly}
+                    className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 transition-colors ${isProficient ? `${c.dot} border-transparent` : 'bg-transparent border-stone-600'}`}
+                    title={isProficient ? 'Remove proficiency' : 'Add proficiency'}
                   />
-                  <input
-                    type="checkbox"
-                    checked={isExpert}
-                    onChange={() => !readOnly && toggleArrayValue('skill_expertise', skill.name)}
-                    className="rounded accent-yellow-600"
-                    title="Expertise"
-                    disabled={readOnly}
+                  <button type="button" disabled={readOnly}
+                    onClick={() => { if (readOnly) return; if (!isExpert && !isProficient) toggleArrayValue('skill_profs', skill.name); toggleArrayValue('skill_expertise', skill.name) }}
+                    className={`w-3 h-3 rotate-45 border-2 shrink-0 transition-colors ${isExpert ? `${c.dot} border-transparent` : 'bg-transparent border-stone-700'}`}
+                    title={isExpert ? 'Remove expertise' : 'Add expertise'}
                   />
-                  <span className="text-stone-300 text-sm flex-1">{skill.name}</span>
-                  <span className="text-xs text-stone-500">{ABILITY_SHORT[skill.ability]}</span>
-                  <span className="text-stone-300 text-sm w-8 text-right">{fmtMod(getSkillBonus(skill))}</span>
-                </label>
+                  <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{skill.name}</span>
+                  <span className={`text-xs font-medium ${c.label}`}>{ABILITY_SHORT[skill.ability]}</span>
+                  <span className={`text-sm w-8 text-right tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
+                </div>
               )
             })}
           </div>

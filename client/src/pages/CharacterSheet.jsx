@@ -643,6 +643,7 @@ export default function CharacterSheet() {
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
       passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
       speed_base: null, max_hp_base: null,
+      unarmed_attack_modifier: '', unarmed_damage_roll: '',
     }
   })
 
@@ -662,6 +663,7 @@ export default function CharacterSheet() {
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [expandedWeapons,  setExpandedWeapons]  = useState(new Set())
+  const [unarmedEditing,   setUnarmedEditing]   = useState(false)
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
   const pendingNewFeature = useRef(false)
@@ -1482,6 +1484,42 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Unarmed Strike — constant, unremovable, editable */}
+                  {(() => {
+                    const unarmedAtk = watch('unarmed_attack_modifier') || ''
+                    const unarmedDmg = watch('unarmed_damage_roll') || ''
+                    const atkValue   = evalFormula(unarmedAtk || 'STR+prof', charStats)
+                    const dmgValue   = evalFormula(unarmedDmg || '1+STR',    charStats)
+                    return (
+                      <tr className="border-b border-stone-700 bg-stone-900/40">
+                        <td className="py-2 pr-2">
+                          {!readOnly && (
+                            <button type="button" onClick={() => setUnarmedEditing(v => !v)}
+                              className={`transition-colors ${unarmedEditing ? 'text-green-400 hover:text-green-300' : 'text-stone-500 hover:text-stone-300'}`}>
+                              {unarmedEditing ? <CheckIcon className="w-4 h-4" /> : <PencilIcon className="w-4 h-4" />}
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span className="text-stone-300 font-medium text-sm">Unarmed Strike</span>
+                        </td>
+                        <td className="py-2 pr-3 text-center">
+                          {unarmedEditing && !readOnly
+                            ? <input {...register('unarmed_attack_modifier')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+prof" />
+                            : <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>}
+                        </td>
+                        <td className="py-2 pr-3 text-center">
+                          {unarmedEditing && !readOnly
+                            ? <input {...register('unarmed_damage_roll')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="1+STR" />
+                            : <span className="text-stone-100 font-bold text-base">{dmgValue}</span>}
+                        </td>
+                        <td className="py-2 text-center">
+                          <span className="text-stone-600">—</span>
+                        </td>
+                      </tr>
+                    )
+                  })()}
+
                   {weapons.map(({ item, i }) => {
                     const rangeProp  = (item.properties || []).find(p => p.name === 'Ammunition' || p.name === 'Thrown')
                     const range      = rangeProp?.extra || null

@@ -2654,12 +2654,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
               Keep concentration on{' '}
               <span className="text-violet-300">{concentrationSavePrompt.spellName}</span>?
             </h3>
-            <div className="flex justify-center mb-5">
+            <div className="flex justify-center mb-3">
               <div className="stat-box text-center min-w-28">
                 <div className="label text-xs text-center">Constitution Save DC</div>
                 <div className="text-3xl font-bold text-center text-stone-100 py-1">{concentrationSavePrompt.dc}</div>
               </div>
             </div>
+            <p className="text-center text-stone-400 text-sm mb-5">
+              CON save modifier: <span className={`font-semibold ${ABILITY_COLORS.constitution.text}`}>{fmtMod(getSavingThrow('constitution'))}</span>
+            </p>
             <div className="flex gap-2">
               <button type="button"
                 onClick={() => setConcentrationSavePrompt(null)}

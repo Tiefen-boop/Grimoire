@@ -27,6 +27,34 @@ for (const [key, weapons] of Object.entries(WEAPON_SPECIFIC)) {
     WEAPON_BY_NAME[w.toLowerCase()] = { weapon_class: cls, weapon_range: range, weapon_specific: w }
   }
 }
+function parseCurrencyExpr(str) {
+  const tokens = String(str).replace(/\s+/g, '').match(/\d+\.?\d*|[+\-*/()]/g) || []
+  let pos = 0
+  function parseExpr() {
+    let left = parseTerm()
+    while (pos < tokens.length && (tokens[pos] === '+' || tokens[pos] === '-')) {
+      const op = tokens[pos++]; const right = parseTerm()
+      left = op === '+' ? left + right : left - right
+    }
+    return left
+  }
+  function parseTerm() {
+    let left = parseFactor()
+    while (pos < tokens.length && (tokens[pos] === '*' || tokens[pos] === '/')) {
+      const op = tokens[pos++]; const right = parseFactor()
+      left = op === '*' ? left * right : right !== 0 ? left / right : left
+    }
+    return left
+  }
+  function parseFactor() {
+    if (pos >= tokens.length) return 0
+    if (tokens[pos] === '(') { pos++; const val = parseExpr(); pos++; return val }
+    const n = parseFloat(tokens[pos++])
+    return isNaN(n) ? 0 : n
+  }
+  try { const r = parseExpr(); return isFinite(r) ? r : null } catch { return null }
+}
+
 function detectWeaponType(name) {
   if (!name) return null
   const lower = name.toLowerCase()
@@ -78,11 +106,74 @@ const CATEGORIES = [
 ]
 
 export default function EquipmentSection({ control, register, watch, setValue, readOnly, onEditingChange, weaponProfs = [], armorProfs = [] }) {
-  const { fields, append, remove } = useFieldArray({ control, name: 'equipment' })
+  const { fields, append, remove, move } = useFieldArray({ control, name: 'equipment' })
 
   const [expanded, setExpanded]   = useState(new Set())
   const [editing, setEditing]     = useState(new Set())
   const [weaponErrors, setWeaponErrors] = useState(new Set())
+
+  const dragIndexRef = useRef(null)
+
+  // Currency: controlled text inputs with arithmetic support
+  const CURRENCY_KEYS = ['copper', 'silver', 'electrum', 'gold', 'platinum']
+  const [currDisplay, setCurrDisplay] = useState(() =>
+    Object.fromEntries(CURRENCY_KEYS.map(k => [k, '0']))
+  )
+  const currFocusedRef = useRef(null)
+  const currPrevRef    = useRef(Object.fromEntries(CURRENCY_KEYS.map(k => [k, 0])))
+
+  const wCopper   = watch('copper')   ?? 0
+  const wSilver   = watch('silver')   ?? 0
+  const wElectrum = watch('electrum') ?? 0
+  const wGold     = watch('gold')     ?? 0
+  const wPlatinum = watch('platinum') ?? 0
+
+  useEffect(() => {
+    const vals = { copper: wCopper, silver: wSilver, electrum: wElectrum, gold: wGold, platinum: wPlatinum }
+    setCurrDisplay(prev => {
+      const next = { ...prev }
+      for (const k of CURRENCY_KEYS) {
+        if (currFocusedRef.current !== k) {
+          next[k] = String(vals[k])
+          currPrevRef.current[k] = vals[k]
+        }
+      }
+      return next
+    })
+  }, [wCopper, wSilver, wElectrum, wGold, wPlatinum])
+
+  function handleCurrFocus(key) {
+    currFocusedRef.current = key
+    currPrevRef.current[key] = watch(key) ?? 0
+  }
+  function handleCurrBlur(key) {
+    currFocusedRef.current = null
+    const raw  = (currDisplay[key] ?? '').trim()
+    const prev = currPrevRef.current[key] ?? 0
+    if (!raw) {
+      setCurrDisplay(d => ({ ...d, [key]: String(prev) }))
+      return
+    }
+    // Leading operator (+50, -20, *2, /4) → relative to prev
+    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+    let result
+    if (leadingOp) {
+      const operand = parseCurrencyExpr(leadingOp[2])
+      if (operand === null) { setCurrDisplay(d => ({ ...d, [key]: String(prev) })); return }
+      const op = leadingOp[1]
+      result = op === '+' ? prev + operand
+             : op === '-' ? prev - operand
+             : op === '*' ? prev * operand
+             : operand !== 0 ? prev / operand : prev
+    } else {
+      result = parseCurrencyExpr(raw)
+      if (result === null) { setCurrDisplay(d => ({ ...d, [key]: String(prev) })); return }
+    }
+    const final = Math.max(0, Math.round(result))
+    setValue(key, final, { shouldDirty: true })
+    setCurrDisplay(d => ({ ...d, [key]: String(final) }))
+    currPrevRef.current[key] = final
+  }
 
   useEffect(() => {
     onEditingChange?.(editing.size > 0)
@@ -261,8 +352,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
         ].map(({ key, label, box, lbl, inp }) => (
           <div key={key} className={`border rounded-lg p-2 text-center ${box}`}>
             <div className={`text-xs font-semibold mb-1 ${lbl}`}>{label}</div>
-            <input type="number" min={0} {...register(key, { valueAsNumber: true })}
-              className={`no-spinner bg-transparent border-0 text-center w-full p-0 text-sm font-medium focus:outline-none ${inp}`}
+            <input type="text"
+              value={currDisplay[key] ?? '0'}
+              onChange={e => setCurrDisplay(d => ({ ...d, [key]: e.target.value }))}
+              onFocus={() => handleCurrFocus(key)}
+              onBlur={() => handleCurrBlur(key)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
+              className={`bg-transparent border-0 text-center w-full p-0 text-sm font-medium focus:outline-none ${inp}`}
               disabled={readOnly} />
           </div>
         ))}
@@ -486,26 +582,50 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                     ) : (
                     /* ── VIEW MODE ──────────────────────────────────────── */
-                      <div>
+                      <div
+                        onDragOver={e => {
+                          e.preventDefault()
+                          if (dragIndexRef.current !== null && dragIndexRef.current !== i &&
+                              allEquip[dragIndexRef.current]?.type === allEquip[i]?.type) {
+                            move(dragIndexRef.current, i)
+                            dragIndexRef.current = i
+                          }
+                        }}
+                        onDrop={e => e.preventDefault()}
+                      >
                         <div className="flex flex-col px-2 py-2 cursor-pointer select-none"
                           onClick={() => toggleExpand(field.id)}>
 
-                          {/* Primary row: chevron + name + action buttons */}
+                          {/* Primary row: drag + chevron + name + NOT PROFICIENT + buttons */}
                           <div className="flex items-center gap-1.5">
+                            {/* Drag handle */}
+                            {!readOnly && (
+                              <span
+                                draggable
+                                onDragStart={e => { e.stopPropagation(); dragIndexRef.current = i }}
+                                onDragEnd={() => { dragIndexRef.current = null }}
+                                onClick={e => e.stopPropagation()}
+                                title="Drag to reorder"
+                                className="cursor-grab active:cursor-grabbing text-stone-600 hover:text-stone-400 select-none shrink-0 text-sm leading-none"
+                              >⠿</span>
+                            )}
+
                             <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                            <div className="flex-1 min-w-0">
-                              <span className="text-stone-100 text-sm font-medium truncate block min-w-0">
+
+                            {/* Name + NOT PROFICIENT inline */}
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                              <span className="text-stone-100 text-sm font-medium truncate">
                                 {item.name || <span className="text-stone-500 italic">Unnamed</span>}
                               </span>
                               {cat.type === 'weapon' && item.weapon_class && (() => {
                                 const classMatch = item.weapon_class === 'simple' ? weaponProfs.includes('Simple') : weaponProfs.includes('Martial')
                                 const specificMatch = !!(item.weapon_specific && weaponProfs.includes(item.weapon_specific))
-                                if (!classMatch && !specificMatch) return <span className="text-red-500 text-xs font-semibold leading-none">NOT PROFICIENT</span>
+                                if (!classMatch && !specificMatch) return <span className="text-red-500 text-xs font-semibold shrink-0">NOT PROFICIENT</span>
                                 return null
                               })()}
                               {cat.type === 'armor' && item.armor_category && (() => {
                                 const map = { light: 'Light', medium: 'Medium', heavy: 'Heavy', shield: 'Shield' }
-                                if (!armorProfs.includes(map[item.armor_category] || '')) return <span className="text-red-500 text-xs font-semibold leading-none">NOT PROFICIENT</span>
+                                if (!armorProfs.includes(map[item.armor_category] || '')) return <span className="text-red-500 text-xs font-semibold shrink-0">NOT PROFICIENT</span>
                                 return null
                               })()}
                             </div>
@@ -563,7 +683,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             )}
                           </div>
 
-                          {/* Info row: stats, charges, price, amount — wraps on small screens */}
+                          {/* Info row: stats, charges, price, amount */}
                           {(
                             (cat.type === 'weapon' && (item.attack_modifier || item.damage_roll)) ||
                             (cat.type === 'armor' && item.ac_formula) ||
@@ -588,9 +708,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 <>
                                   <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
                                   {(item.charges_recharge === 'short' || item.charges_recharge === 'long') && (
-                                    <span className="text-stone-500">
-                                      ({item.charges_recharge === 'short' ? 'Short Rest' : 'Long Rest'})
-                                    </span>
+                                    <span className="text-stone-500">({item.charges_recharge === 'short' ? 'Short Rest' : 'Long Rest'})</span>
                                   )}
                                 </>
                               )}

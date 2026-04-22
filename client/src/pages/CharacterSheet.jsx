@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 import { evalFormula } from '../utils/formulaEval'
@@ -98,6 +98,28 @@ const WEAPON_TYPES = {
   'martial-melee': 'Martial Melee', 'martial-ranged': 'Martial Ranged',
 }
 
+const WEAPON_SPECIFIC = {
+  'simple-melee':   ['Club','Dagger','Greatclub','Handaxe','Javelin','Light Hammer','Mace','Quarterstaff','Sickle','Spear'],
+  'simple-ranged':  ['Light Crossbow','Dart','Shortbow','Sling'],
+  'martial-melee':  ['Battleaxe','Flail','Glaive','Greataxe','Greatsword','Halberd','Lance','Longsword','Maul','Morningstar','Pike','Rapier','Scimitar','Shortsword','Trident','War Pick','Warhammer','Whip'],
+  'martial-ranged': ['Blowgun','Hand Crossbow','Heavy Crossbow','Longbow','Net'],
+}
+
+const ALL_SPECIFIC_WEAPONS = Object.values(WEAPON_SPECIFIC).flat().sort()
+
+const ARMOR_PROF_CATEGORIES = ['Light', 'Medium', 'Heavy', 'Shield']
+
+const TOOLS = [
+  "Alchemist's Supplies","Brewer's Supplies","Calligrapher's Supplies","Carpenter's Tools",
+  "Cartographer's Tools","Cobbler's Tools","Cook's Utensils","Glassblower's Tools",
+  "Jeweler's Tools","Leatherworker's Tools","Mason's Tools","Painter's Supplies",
+  "Potter's Tools","Smith's Tools","Tinker's Tools","Weaver's Tools","Woodcarver's Tools",
+  "Disguise Kit","Forgery Kit","Dice Set","Dragonchess Set","Playing Card Set","Three-Dragon Ante Set",
+  "Herbalism Kit","Navigator's Tools","Poisoner's Kit","Thieves' Tools",
+  "Bagpipes","Drum","Dulcimer","Flute","Lute","Lyre","Horn","Pan Flute","Shawm","Viol",
+  "Land Vehicles","Water Vehicles",
+].sort()
+
 function parseHitDice(str) {
   if (!str) return []
   return str.split('+').map(s => {
@@ -155,6 +177,154 @@ function computeEffectiveSpeed(base, conditions, exhaustion) {
 }
 function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
+}
+
+function checkWeaponProficiency(item, weaponProfs) {
+  if (!item.weapon_class) return null
+  const classMatch = item.weapon_class === 'simple' ? weaponProfs.includes('Simple') : weaponProfs.includes('Martial')
+  const specificMatch = !!(item.weapon_specific && weaponProfs.includes(item.weapon_specific))
+  return classMatch || specificMatch
+}
+
+function checkArmorProficiency(item, armorProfs) {
+  if (!item.armor_category) return null
+  const map = { light: 'Light', medium: 'Medium', heavy: 'Heavy', shield: 'Shield' }
+  return armorProfs.includes(map[item.armor_category] || '')
+}
+
+function SubSection({ title, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border border-stone-700 rounded-lg mb-2">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center justify-between px-3 py-2 bg-stone-800 text-sm font-semibold text-stone-300 cursor-pointer select-none uppercase tracking-wide ${open ? 'rounded-t-lg' : 'rounded-lg'}`}>
+        {title}
+        <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open && <div className="p-3 rounded-b-lg">{children}</div>}
+    </div>
+  )
+}
+
+function ProfTagInput({ label, items, selected, onChange, readOnly, placeholder }) {
+  const [search, setSearch] = useState('')
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const filtered = items.filter(x => x.toLowerCase().includes(search.toLowerCase()) && !selected.includes(x))
+
+  function handleKeyDown(e) {
+    if (!search && filtered.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex(i => Math.min(i + 1, filtered.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex(i => Math.max(i - 1, -1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (activeIndex >= 0 && filtered[activeIndex]) {
+        onChange([...selected, filtered[activeIndex]])
+        setSearch('')
+        setActiveIndex(-1)
+      }
+    } else if (e.key === 'Escape') {
+      setSearch('')
+      setActiveIndex(-1)
+    }
+  }
+
+  return (
+    <div>
+      {label && <div className="label text-xs mb-1">{label}</div>}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {selected.map(s => (
+            <span key={s} className="flex items-center gap-0.5 bg-stone-700 text-stone-200 text-xs px-2 py-0.5 rounded border border-stone-600">
+              {s}
+              {!readOnly && (
+                <button type="button" onClick={() => onChange(selected.filter(x => x !== s))}
+                  className="ml-0.5 text-stone-400 hover:text-red-400">
+                  <XMarkIcon className="w-3 h-3" />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      {!readOnly && (
+        <div className="relative">
+          <input type="text" value={search}
+            onChange={e => { setSearch(e.target.value); setActiveIndex(-1) }}
+            onKeyDown={handleKeyDown}
+            className="input text-sm" placeholder={placeholder || 'Search...'} />
+          {search && filtered.length > 0 && (
+            <div className="absolute z-20 top-full left-0 right-0 bg-stone-800 border border-stone-600 rounded mt-1 max-h-40 overflow-y-auto shadow-xl">
+              {filtered.map((item, idx) => (
+                <button type="button" key={item}
+                  onClick={() => { onChange([...selected, item]); setSearch(''); setActiveIndex(-1) }}
+                  className={`w-full text-left px-3 py-1.5 text-sm text-stone-200 ${idx === activeIndex ? 'bg-stone-600' : 'hover:bg-stone-700'}`}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          )}
+          {search && filtered.length === 0 && (
+            <div className="absolute z-20 top-full left-0 right-0 bg-stone-800 border border-stone-600 rounded mt-1 shadow-xl">
+              <div className="px-3 py-2 text-xs text-stone-500 italic">No matches.</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FreeTagInput({ label, selected, onChange, readOnly, placeholder }) {
+  const [input, setInput] = useState('')
+
+  function addTag(value) {
+    const trimmed = value.trim().replace(/,$/, '').trim()
+    if (trimmed && !selected.includes(trimmed)) {
+      onChange([...selected, trimmed])
+    }
+    setInput('')
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addTag(input)
+    } else if (e.key === 'Backspace' && !input && selected.length > 0) {
+      onChange(selected.slice(0, -1))
+    }
+  }
+
+  return (
+    <div>
+      {label && <div className="label text-xs mb-1">{label}</div>}
+      <div className="input flex flex-wrap gap-1 min-h-[2.5rem] cursor-text" onClick={e => e.currentTarget.querySelector('input')?.focus()}>
+        {selected.map(s => (
+          <span key={s} className="flex items-center gap-0.5 bg-stone-700 text-stone-200 text-xs px-2 py-0.5 rounded border border-stone-600 self-center">
+            {s}
+            {!readOnly && (
+              <button type="button" onClick={() => onChange(selected.filter(x => x !== s))}
+                className="ml-0.5 text-stone-400 hover:text-red-400">
+                <XMarkIcon className="w-3 h-3" />
+              </button>
+            )}
+          </span>
+        ))}
+        {!readOnly && (
+          <input type="text" value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => { if (input.trim()) addTag(input) }}
+            className="bg-transparent flex-1 min-w-20 text-sm text-stone-200 focus:outline-none self-center"
+            placeholder={selected.length === 0 ? (placeholder || 'Type and press Enter…') : ''}
+          />
+        )}
+      </div>
+    </div>
+  )
 }
 
 function Section({ title, children, defaultOpen = true }) {
@@ -879,6 +1049,7 @@ export default function CharacterSheet() {
       passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
       speed_base: null, max_hp_base: null,
       unarmed_attack_modifier: '', unarmed_damage_roll: '',
+      weapon_profs: [], armor_profs: [], tool_profs: [], languages: [],
     }
   })
 
@@ -1029,6 +1200,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchedSkillProfs = watch('skill_profs') || []
   const watchedSkillExp   = watch('skill_expertise') || []
   const watchedProfBonus  = watch('proficiency_bonus') ?? 0
+  const watchedWeaponProfs = watch('weapon_profs') || []
+  const watchedArmorProfs  = watch('armor_profs')  || []
+  const watchedToolProfs   = watch('tool_profs')   || []
+  const watchedLanguages   = watch('languages')    || []
   const allClasses        = watch('classes') || []
 
   const watchedMaxHp  = watch('max_hp')     ?? 0
@@ -1761,8 +1936,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     const atkFormula = item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier
                     const versatile  = (item.properties || []).find(p => p.name === 'Versatile')
                     const dmgFormula = item.versatile_active && versatile?.extra ? versatile.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
-                    const atkValue   = atkFormula ? evalFormula(atkFormula, charStats) : '—'
-                    const dmgValue   = dmgFormula ? evalFormula(dmgFormula, charStats) : '—'
+                    const proficient = checkWeaponProficiency(item, watchedWeaponProfs)
+                    const evalStats  = proficient === false ? { ...charStats, proficiency_bonus: 0 } : charStats
+                    const atkValue   = atkFormula ? evalFormula(atkFormula, evalStats) : '—'
+                    const dmgValue   = dmgFormula ? evalFormula(dmgFormula, evalStats) : '—'
                     const isExpanded = expandedWeapons.has(i)
                     const props      = item.properties || []
 
@@ -1774,8 +1951,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
                           </td>
                           <td className="py-2 pr-3">
-                            <span className="text-stone-100 font-medium">{item.name || <span className="text-stone-500 italic">Unnamed</span>}</span>
-                            {range && <span className="text-stone-400 text-xs ml-1.5">({range})</span>}
+                            <div>
+                              <span className="text-stone-100 font-medium">{item.name || <span className="text-stone-500 italic">Unnamed</span>}</span>
+                              {range && <span className="text-stone-400 text-xs ml-1.5">({range})</span>}
+                              {proficient === false && (
+                                <div className="text-red-500 text-xs font-semibold leading-none mt-0.5">NOT PROFICIENT</div>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2 pr-3 text-center">
                             <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>
@@ -1882,8 +2064,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         })}
       </Section>
 
-      {/* Features */}
-      <Section title="Features" defaultOpen={false}>
+      {/* Features, Proficiencies & Languages */}
+      <Section title="Features, Proficiencies & Languages" defaultOpen={false}>
+
+        <SubSection title="Features">
         <div className="space-y-1 mb-2">
           {featureFields.map((field, i) => {
             const isExpanded        = expandedFeatures.has(field.id)
@@ -2017,11 +2201,93 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <PlusIcon className="w-4 h-4 mr-1" /> Add Feature
           </button>
         )}
+        </SubSection>
+
+        <SubSection title="Proficiencies" defaultOpen={false}>
+          {/* Weapons */}
+          <div className="mb-4">
+            <div className="label text-xs mb-2">Weapons</div>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {['Simple', 'Martial'].map(cat => {
+                const active = watchedWeaponProfs.includes(cat)
+                return (
+                  <button key={cat} type="button"
+                    disabled={readOnly}
+                    onClick={() => {
+                      const next = active
+                        ? watchedWeaponProfs.filter(x => x !== cat)
+                        : [...watchedWeaponProfs, cat]
+                      setValue('weapon_profs', next, { shouldDirty: true })
+                    }}
+                    className={`text-xs px-3 py-1 rounded border transition-colors ${active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-800 text-stone-400 border-stone-600 hover:border-stone-500'} ${readOnly ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
+                    {cat}
+                  </button>
+                )
+              })}
+            </div>
+            <ProfTagInput
+              items={ALL_SPECIFIC_WEAPONS}
+              selected={watchedWeaponProfs.filter(p => p !== 'Simple' && p !== 'Martial')}
+              onChange={specifics => setValue('weapon_profs', [...watchedWeaponProfs.filter(p => p === 'Simple' || p === 'Martial'), ...specifics], { shouldDirty: true })}
+              readOnly={readOnly}
+              placeholder="Search specific weapon..."
+            />
+          </div>
+
+          {/* Armor */}
+          <div className="mb-4">
+            <div className="label text-xs mb-2">Armor</div>
+            <div className="flex flex-wrap gap-1">
+              {ARMOR_PROF_CATEGORIES.map(cat => {
+                const active = watchedArmorProfs.includes(cat)
+                return (
+                  <button key={cat} type="button"
+                    disabled={readOnly}
+                    onClick={() => {
+                      const next = active
+                        ? watchedArmorProfs.filter(x => x !== cat)
+                        : [...watchedArmorProfs, cat]
+                      setValue('armor_profs', next, { shouldDirty: true })
+                    }}
+                    className={`text-xs px-3 py-1 rounded border transition-colors ${active ? 'bg-blue-900 text-blue-300 border-blue-700' : 'bg-stone-800 text-stone-400 border-stone-600 hover:border-stone-500'} ${readOnly ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
+                    {cat}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Tools */}
+          <div>
+            <ProfTagInput
+              label="Tools"
+              items={TOOLS}
+              selected={watchedToolProfs}
+              onChange={next => setValue('tool_profs', next, { shouldDirty: true })}
+              readOnly={readOnly}
+              placeholder="Search tool..."
+            />
+          </div>
+        </SubSection>
+
+        <SubSection title="Languages" defaultOpen={false}>
+          <FreeTagInput
+            selected={watchedLanguages}
+            onChange={next => setValue('languages', next, { shouldDirty: true })}
+            readOnly={readOnly}
+            placeholder="Type a language and press Enter…"
+          />
+        </SubSection>
+
       </Section>
 
       {/* Equipment & Currency */}
       <Section title="Equipment & Currency" defaultOpen={false}>
-        <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly} onEditingChange={setEquipmentHasEditing} />
+        <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly}
+          onEditingChange={setEquipmentHasEditing}
+          weaponProfs={watchedWeaponProfs}
+          armorProfs={watchedArmorProfs}
+        />
       </Section>
 
       {/* Dynamic Spellcasting sections — one per spellcasting class */}

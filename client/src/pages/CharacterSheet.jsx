@@ -270,7 +270,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
     <div className="mt-5 border-t border-stone-700 pt-4">
       {/* Block header */}
       <div className="flex items-center justify-between cursor-pointer select-none mb-3" onClick={toggleBlock}>
-        <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">
+        <span className="text-sm font-bold uppercase tracking-wide text-violet-400">
           {className || 'Unknown'} Spellcasting
         </span>
         <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${blockExpanded ? '' : '-rotate-90'}`} />

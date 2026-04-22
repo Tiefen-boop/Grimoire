@@ -999,7 +999,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   )
 }
 
-function ExhaustionBlock({ watch, setValue, readOnly }) {
+function ExhaustionBlock({ watch, setValue, readOnly, onExhaustionChange }) {
   const [tooltip, setTooltip] = useState(null)
   const exhaustion = watch('exhaustion') ?? 0
 
@@ -1012,7 +1012,7 @@ function ExhaustionBlock({ watch, setValue, readOnly }) {
           const colors   = EXHAUSTION_DOT_COLORS[j]
           return (
             <button key={j} type="button"
-              onClick={() => !readOnly && setValue('exhaustion', exhaustion >= j ? j - 1 : j, { shouldDirty: true })}
+              onClick={() => { if (readOnly) return; const next = exhaustion >= j ? j - 1 : j; setValue('exhaustion', next, { shouldDirty: true }); onExhaustionChange?.(next) }}
               onMouseMove={e => setTooltip({ level: j, x: e.clientX, y: e.clientY })}
               onMouseLeave={() => setTooltip(null)}
               className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors text-sm ${
@@ -1134,6 +1134,7 @@ export default function CharacterSheet() {
   const currHpFocused = useRef(false)
   const maxHpFocused  = useRef(false)
   const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
+  const [concentrationLostPrompt, setConcentrationLostPrompt] = useState(null)
   const autoSaveTimer = useRef(null)
   const savedValuesRef = useRef(null)
   const isInitialLoadRef   = useRef(false)
@@ -1168,6 +1169,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     if (!concentratingInfo || damage <= 0) return
     const dc = Math.max(10, Math.floor(damage / 2))
     setConcentrationSavePrompt({ spellName: concentratingInfo.name, dc })
+  }
+
+  function loseConcentrationDirect() {
+    if (!concentratingInfo) return
+    setConcentrationLostPrompt(concentratingInfo.name)
+    setConcentratingInfo(null)
+    setConcentrationSavePrompt(null)
   }
 
   useEffect(() => {
@@ -1281,6 +1289,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       }
     }
     setValue('conditions', newConditions, { shouldDirty: true })
+    if (!isRemoving && !current.includes('Incapacitated') && newConditions.includes('Incapacitated')) {
+      loseConcentrationDirect()
+    }
   }
 
   const watchedAbilities  = watch(ABILITIES)
@@ -1781,7 +1792,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     const final = Math.min(max, Math.max(0, Math.round(result)))
                     setValue('current_hp', final, { shouldDirty: true })
                     setCurrHpDisplay(null)
-                    checkConcentrationSave(prev - final)
+                    if (final === 0 && prev > 0) {
+                      const current = watch('conditions') || []
+                      if (!current.includes('Unconscious')) {
+                        let newConds = [...current, 'Unconscious']
+                        for (const c of (CONDITION_CHAINS['Unconscious'] || [])) {
+                          if (!newConds.includes(c)) newConds.push(c)
+                        }
+                        setValue('conditions', newConds, { shouldDirty: true })
+                      }
+                      loseConcentrationDirect()
+                    } else {
+                      checkConcentrationSave(prev - final)
+                    }
                   }}
                   onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-right w-12 focus:outline-none font-sans"
@@ -1975,7 +1998,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
 
           {/* Exhaustion block */}
-          <ExhaustionBlock watch={watch} setValue={setValue} readOnly={readOnly} />
+          <ExhaustionBlock watch={watch} setValue={setValue} readOnly={readOnly}
+            onExhaustionChange={lvl => { if (lvl >= 6) loseConcentrationDirect() }} />
 
         </div>
 
@@ -2550,6 +2574,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Modal>
       <Modal open={!!outOfChargesModal} title="No charges remaining" onCancel={() => setOutOfChargesModal(null)}>
         <strong>{outOfChargesModal?.name}</strong> has no charges remaining.
+      </Modal>
+
+      {/* Concentration lost notification */}
+      <Modal open={!!concentrationLostPrompt} title="Lost Concentration"
+        onCancel={() => setConcentrationLostPrompt(null)} cancelLabel="OK">
+        Lost concentration on <strong className="text-violet-300">{concentrationLostPrompt}</strong>.
       </Modal>
 
       {/* Concentration save prompt */}

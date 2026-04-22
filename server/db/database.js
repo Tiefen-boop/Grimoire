@@ -16,6 +16,8 @@ function getDb() {
     // Migrations: add columns that may not exist on older databases
     const migrations = [
       "ALTER TABLE characters ADD COLUMN features_list TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE characters ADD COLUMN unarmed_attack_modifier TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE characters ADD COLUMN unarmed_damage_roll TEXT NOT NULL DEFAULT ''",
     ]
     for (const sql of migrations) {
       try { db.exec(sql) } catch { /* column already exists */ }

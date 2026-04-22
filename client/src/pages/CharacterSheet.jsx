@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
@@ -92,6 +92,11 @@ function mod(score) {
 }
 
 const HD_DIE_SIZES = [4, 6, 8, 10, 12, 20]
+
+const WEAPON_TYPES = {
+  'simple-melee': 'Simple Melee', 'simple-ranged': 'Simple Ranged',
+  'martial-melee': 'Martial Melee', 'martial-ranged': 'Martial Ranged',
+}
 
 function parseHitDice(str) {
   if (!str) return []
@@ -196,6 +201,230 @@ const FILTER_STATE_CLASSES = {
   0: 'bg-transparent text-stone-500 border-stone-700 hover:text-stone-400 hover:border-stone-500',
   1: 'bg-blue-900/40 text-blue-300 border-blue-700 hover:bg-blue-900/60',
   2: 'bg-red-900/40 text-red-300 border-red-700 hover:bg-red-900/60',
+}
+
+function getCookie(name) {
+  const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.+^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'))
+  return m ? decodeURIComponent(m[1]) : null
+}
+function setCookie(name, value) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${365 * 24 * 3600}`
+}
+
+const ATTACKS_SPELL_FILTERS_GENERAL = SPELL_FILTERS_GENERAL.filter(f => f.key !== 'prepared')
+
+function AttacksSpellcastingBlock({ classIndex, className, castingAbility, control, watch, setValue, watchedProfBonus, watchedAbilities }) {
+  const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
+
+  const cookieKey = `grimoire_atk_exp_${(className || 'unknown').replace(/\W+/g, '_')}`
+  const [blockExpanded, setBlockExpanded] = useState(() => {
+    const v = getCookie(cookieKey); return v === null ? true : v === 'true'
+  })
+  const [expandedLevels, setExpandedLevels] = useState(() => new Set(SPELL_LEVELS))
+  const [expandedSpells, setExpandedSpells] = useState(new Set())
+  const [filterStates,   setFilterStates]   = useState(() => {
+    try { const s = localStorage.getItem(`grimoire_atk_filters_${classIndex}`); return s ? JSON.parse(s) : {} } catch { return {} }
+  })
+
+  const abilityIdx  = ABILITIES.indexOf(castingAbility)
+  const abilityMod  = abilityIdx >= 0 ? Math.floor(((watchedAbilities[abilityIdx] ?? 10) - 10) / 2) : 0
+  const saveDC      = 8 + watchedProfBonus + abilityMod
+  const attackBonus = watchedProfBonus + abilityMod
+
+  function toggleBlock() {
+    const next = !blockExpanded; setBlockExpanded(next); setCookie(cookieKey, String(next))
+  }
+  function cycleFilter(key) {
+    setFilterStates(prev => {
+      const next = ((prev[key] || 0) + 1) % 3
+      const updated = { ...prev }
+      if (next === 0) delete updated[key]; else updated[key] = next
+      try { localStorage.setItem(`grimoire_atk_filters_${classIndex}`, JSON.stringify(updated)) } catch {}
+      return updated
+    })
+  }
+
+  const allFilters  = [...ATTACKS_SPELL_FILTERS_GENERAL, ...SPELL_FILTERS_SCHOOLS]
+  const showFilters = allFilters.filter(f => filterStates[f.key] === 1)
+  const hideFilters = allFilters.filter(f => filterStates[f.key] === 2)
+
+  function spellVisible(sp, lvl) {
+    if (hideFilters.some(f => f.accepts(sp, lvl))) return false
+    if (showFilters.length > 0 && !showFilters.every(f => f.accepts(sp, lvl))) return false
+    return true
+  }
+  function hasSlotAtOrAbove(lvl) {
+    if (lvl === 0) return true
+    return SPELL_LEVELS.filter(l => l >= lvl).some(l =>
+      (parseInt(watch(`classes.${classIndex}.spell_slots.${l}.left`)) || 0) > 0
+    )
+  }
+  function hasMaxSlotAtOrAbove(lvl) {
+    if (lvl === 0) return true
+    return SPELL_LEVELS.filter(l => l >= lvl).some(l =>
+      (parseInt(watch(`classes.${classIndex}.spell_slots.${l}.max`)) || 0) > 0
+    )
+  }
+
+  return (
+    <div className="mt-5 border-t border-stone-700 pt-4">
+      {/* Block header */}
+      <div className="flex items-center justify-between cursor-pointer select-none mb-3" onClick={toggleBlock}>
+        <span className="text-sm font-bold uppercase tracking-wide text-violet-400">
+          {className || 'Unknown'} Spellcasting
+        </span>
+        <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${blockExpanded ? '' : '-rotate-90'}`} />
+      </div>
+
+      {blockExpanded && (
+        <>
+          {/* Attack bonus + Save DC */}
+          <div className="flex justify-around mb-4">
+            <div className="stat-box text-center min-w-24">
+              <div className="label text-xs text-center">Spell Attack</div>
+              <div className="text-2xl font-bold text-center text-stone-100 py-1">{fmtMod(attackBonus)}</div>
+            </div>
+            <div className="stat-box text-center min-w-24">
+              <div className="label text-xs text-center">Spell Save DC</div>
+              <div className="text-2xl font-bold text-center text-stone-100 py-1">{saveDC}</div>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-col gap-1 mb-3">
+            <div className="flex flex-wrap gap-1">
+              {ATTACKS_SPELL_FILTERS_GENERAL.map(f => (
+                <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
+                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {SPELL_FILTERS_SCHOOLS.map(f => (
+                <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
+                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Spellbook — read-only */}
+          <div className="space-y-1">
+            {SPELL_LEVELS.map(lvl => {
+              if (!hasMaxSlotAtOrAbove(lvl)) return null
+              const c = SPELL_LEVEL_COLORS[lvl]
+              const levelSpells = allSpells
+                .map((sp, i) => ({ sp, i }))
+                .filter(({ sp }) => (sp?.level ?? 0) === lvl && (lvl === 0 || !!sp?.prepared))
+              const slotsAvailable = hasSlotAtOrAbove(lvl)
+              const visibleSpells  = slotsAvailable ? levelSpells.filter(({ sp }) => spellVisible(sp, lvl)) : []
+              const isFiltering   = showFilters.length > 0 || hideFilters.length > 0
+              const isOpen        = expandedLevels.has(lvl)
+
+              return (
+                <div key={lvl} className={`rounded-lg border ${c.ring} overflow-hidden`}>
+                  <div className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none ${c.header}`}
+                    onClick={() => setExpandedLevels(prev => { const n = new Set(prev); n.has(lvl) ? n.delete(lvl) : n.add(lvl); return n })}>
+                    <ChevronDownIcon className={`w-4 h-4 ${c.text} shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                    <span className={`text-sm font-semibold ${c.text} flex-1`}>{c.label}</span>
+                    {lvl > 0 && (
+                      <div className="flex items-center gap-1.5 text-xs" onClick={e => e.stopPropagation()}>
+                        <button type="button"
+                          onClick={() => {
+                            const max  = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`))  || 0
+                            const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+                            if (left < max) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left + 1, { shouldDirty: true })
+                          }}
+                          className={`px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                          Add slot
+                        </button>
+                        <span className={`${c.text} opacity-60`}>Slots:</span>
+                        <span className={`${c.text} tabular-nums`}>
+                          {parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0}/
+                          {parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`))  || 0}
+                        </span>
+                        <button type="button"
+                          onClick={() => {
+                            const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+                            if (left > 0) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left - 1, { shouldDirty: true })
+                          }}
+                          className={`px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                          Use
+                        </button>
+                      </div>
+                    )}
+                    <span className={`text-xs ${c.text} opacity-50`}>
+                      {isFiltering && visibleSpells.length !== levelSpells.length
+                        ? `${visibleSpells.length}/${levelSpells.length}`
+                        : levelSpells.length}
+                    </span>
+                  </div>
+
+                  {isOpen && (
+                    <div className="divide-y divide-stone-700/40">
+                      {!slotsAvailable && levelSpells.length === 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No remaining slots. No spells.</p>
+                      )}
+                      {!slotsAvailable && levelSpells.length > 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No remaining slots.</p>
+                      )}
+                      {slotsAvailable && levelSpells.length === 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No spells.</p>
+                      )}
+                      {slotsAvailable && levelSpells.length > 0 && visibleSpells.length === 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No spells match the active filters.</p>
+                      )}
+                      {visibleSpells.map(({ sp, i }) => {
+                        const key     = `${classIndex}-${i}`
+                        const isOpen2 = expandedSpells.has(key)
+                        const compParts   = [sp.comp_v && 'V', sp.comp_s && 'S', sp.comp_m && 'M'].filter(Boolean)
+                        const compDisplay = compParts.length
+                          ? compParts.join(', ') + (sp.comp_m && sp.comp_m_text ? ` (${sp.comp_m_text})` : '')
+                          : null
+                        const hasDetail = sp.school || compDisplay || sp.duration || sp.description
+                        return (
+                          <div key={key}>
+                            <div className="flex items-start gap-1.5 px-3 py-2 cursor-pointer select-none"
+                              onClick={() => setExpandedSpells(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}>
+                              <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isOpen2 ? '' : '-rotate-90'}`} />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                                  <span className="text-stone-100 text-sm">
+                                    {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                  </span>
+                                  {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
+                                </div>
+                                {(sp.cast_time || sp.range) && (
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                    {sp.cast_time && <span className="text-xs text-stone-500"><span className="text-stone-600">Casting Time:</span> {sp.cast_time}</span>}
+                                    {sp.range     && <span className="text-xs text-stone-500"><span className="text-stone-600">Range:</span> {sp.range}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {isOpen2 && hasDetail && (
+                              <div className="px-4 pb-3 border-t border-stone-700/40 pt-2 space-y-1.5">
+                                {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
+                                {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
+                                {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
+                                {sp.description && <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 function SpellcastingBlock({ classIndex, castingAbility, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
@@ -325,6 +554,15 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                 <span className={`text-sm font-semibold ${c.text} flex-1`}>{c.label}</span>
                 {lvl > 0 && (
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    <button type="button"
+                      onClick={() => {
+                        const max  = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`))  || 0
+                        const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+                        if (left < max) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left + 1, { shouldDirty: true })
+                      }}
+                      className={`text-xs px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                      Add slot
+                    </button>
                     <span className={`text-xs ${c.text} opacity-60`}>Slots:</span>
                     <input type="number" min={0}
                       {...register(`classes.${classIndex}.spell_slots.${lvl}.left`, {
@@ -446,13 +684,11 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                               onClick={() => toggleExpandSpell(field.id)}>
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
                               <div className="flex-1 min-w-0">
-                                <div className="text-stone-100 text-sm break-words">
-                                  {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
-                                </div>
-                                {sp.ritual && (
-                                  <div className="text-stone-500 text-xs italic">(ritual)</div>
-                                )}
-                                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                                  <span className="text-stone-100 text-sm">
+                                    {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                  </span>
+                                  {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
                                   {lvl > 0 && (
                                     <button type="button"
                                       onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
@@ -460,21 +696,25 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                                       Prep
                                     </button>
                                   )}
-                                  {sp.cast_time && <span className="text-xs text-stone-500">{sp.cast_time}</span>}
-                                  {sp.range && <span className="text-xs text-stone-500">{sp.range}</span>}
                                   {!readOnly && (
                                     <>
                                       <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
-                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700">
+                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
                                         <PencilIcon className="w-3.5 h-3.5" />
                                       </button>
                                       <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
-                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700">
+                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
                                         <TrashIcon className="w-3.5 h-3.5" />
                                       </button>
                                     </>
                                   )}
                                 </div>
+                                {(sp.cast_time || sp.range) && (
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                    {sp.cast_time && <span className="text-xs text-stone-500"><span className="text-stone-600">Casting Time:</span> {sp.cast_time}</span>}
+                                    {sp.range     && <span className="text-xs text-stone-500"><span className="text-stone-600">Range:</span> {sp.range}</span>}
+                                  </div>
+                                )}
                               </div>
                             </div>
                             {/* Expanded content */}
@@ -638,10 +878,10 @@ export default function CharacterSheet() {
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
       passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
       speed_base: null, max_hp_base: null,
+      unarmed_attack_modifier: '', unarmed_damage_roll: '',
     }
   })
 
-  const { fields: attackFields, append: addAttack, remove: removeAttack } = useFieldArray({ control, name: 'attacks' })
   const { fields: classFields,  append: addClass,  remove: removeClass  } = useFieldArray({ control, name: 'classes' })
   const { fields: featureFields, append: addFeature, remove: removeFeature } = useFieldArray({ control, name: 'features_list' })
 
@@ -657,6 +897,8 @@ export default function CharacterSheet() {
   const prevEffectStateRef = useRef(null)
 
 const [expandedFeatures, setExpandedFeatures] = useState(new Set())
+  const [expandedWeapons,  setExpandedWeapons]  = useState(new Set())
+  const [unarmedEditing,   setUnarmedEditing]   = useState(false)
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
   const pendingNewFeature = useRef(false)
@@ -800,14 +1042,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   const autoInitBonus = mod(watchedAbilities[1] ?? 10)
 
+  const charStats = {
+    strength: watchedAbilities[0], dexterity: watchedAbilities[1],
+    constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
+    wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
+    proficiency_bonus: watchedProfBonus
+  }
+
   const autoAC = (() => {
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
-    const charStats = {
-      strength: watchedAbilities[0], dexterity: watchedAbilities[1],
-      constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
-      wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
-      proficiency_bonus: watchedProfBonus
-    }
     const body = equipped.filter(i => i.armor_category !== 'shield')
     const shields = equipped.filter(i => i.armor_category === 'shield')
     let base = 10
@@ -1455,44 +1698,188 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* Attacks */}
       <Section title="Attacks & Spellcasting" defaultOpen={false}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm mb-2">
-            <thead>
-              <tr className="text-stone-400 text-left">
-                <th className="pb-2 pr-2">Name</th>
-                <th className="pb-2 pr-2">Attack Bonus</th>
-                <th className="pb-2 pr-2">Damage</th>
-                <th className="pb-2 pr-2">Type</th>
-                <th className="pb-2 pr-2">Range</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {attackFields.map((field, i) => (
-                <tr key={field.id}>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.name`)} className="input" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.attack_bonus`)} className="input w-20" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.damage`)} className="input w-20" placeholder="1d6" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.damage_type`)} className="input w-24" placeholder="Slashing" disabled={readOnly} /></td>
-                  <td className="pr-2 pb-1"><input {...register(`attacks.${i}.range`)} className="input w-20" placeholder="5 ft" disabled={readOnly} /></td>
-                  <td className="pb-1">
-                    {!readOnly && (
-                      <button type="button" onClick={() => removeAttack(i)} className="text-stone-500 hover:text-red-400 p-1">
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!readOnly && (
-            <button type="button" onClick={() => addAttack({ name: '', attack_bonus: '', damage: '', damage_type: '', range: '' })}
-              className="btn btn-secondary btn-sm">
-              <PlusIcon className="w-4 h-4 mr-1" /> Add Attack
-            </button>
-          )}
-        </div>
+        {(() => {
+          const allEquipment = watch('equipment') || []
+          const weapons = allEquipment.map((item, i) => ({ item, i })).filter(({ item }) => item.type === 'weapon')
+
+          if (weapons.length === 0) {
+            return <p className="text-stone-500 text-xs italic px-1">No weapons in equipment.</p>
+          }
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-stone-400 text-xs uppercase tracking-wide border-b border-stone-700">
+                    <th className="pb-2 pr-3 w-5"></th>
+                    <th className="pb-2 pr-3 text-left font-medium">Name</th>
+                    <th className="pb-2 pr-3 text-center font-medium">Attack</th>
+                    <th className="pb-2 pr-3 text-center font-medium">Damage</th>
+                    <th className="pb-2 text-center font-medium">Charges</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Unarmed Strike — constant, unremovable, editable */}
+                  {(() => {
+                    const unarmedAtk = watch('unarmed_attack_modifier') || ''
+                    const unarmedDmg = watch('unarmed_damage_roll') || ''
+                    const atkValue   = evalFormula(unarmedAtk || 'STR+prof', charStats)
+                    const dmgValue   = evalFormula(unarmedDmg || '1+STR',    charStats)
+                    return (
+                      <tr className="border-b border-stone-700 bg-stone-900/40">
+                        <td className="py-2 pr-2">
+                          {!readOnly && (
+                            <button type="button" onClick={() => setUnarmedEditing(v => !v)}
+                              className={`transition-colors ${unarmedEditing ? 'text-green-400 hover:text-green-300' : 'text-stone-500 hover:text-stone-300'}`}>
+                              {unarmedEditing ? <CheckIcon className="w-4 h-4" /> : <PencilIcon className="w-4 h-4" />}
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span className="text-stone-300 font-medium text-sm">Unarmed Strike</span>
+                        </td>
+                        <td className="py-2 pr-3 text-center">
+                          {unarmedEditing && !readOnly
+                            ? <input {...register('unarmed_attack_modifier')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+prof" />
+                            : <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>}
+                        </td>
+                        <td className="py-2 pr-3 text-center">
+                          {unarmedEditing && !readOnly
+                            ? <input {...register('unarmed_damage_roll')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="1+STR" />
+                            : <span className="text-stone-100 font-bold text-base">{dmgValue}</span>}
+                        </td>
+                        <td className="py-2 text-center">
+                          <span className="text-stone-600">—</span>
+                        </td>
+                      </tr>
+                    )
+                  })()}
+
+                  {weapons.map(({ item, i }) => {
+                    const rangeProp  = (item.properties || []).find(p => p.name === 'Ammunition' || p.name === 'Thrown')
+                    const range      = rangeProp?.extra || null
+                    const atkFormula = item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier
+                    const versatile  = (item.properties || []).find(p => p.name === 'Versatile')
+                    const dmgFormula = item.versatile_active && versatile?.extra ? versatile.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                    const atkValue   = atkFormula ? evalFormula(atkFormula, charStats) : '—'
+                    const dmgValue   = dmgFormula ? evalFormula(dmgFormula, charStats) : '—'
+                    const isExpanded = expandedWeapons.has(i)
+                    const props      = item.properties || []
+
+                    return (
+                      <Fragment key={i}>
+                        <tr className="cursor-pointer select-none hover:bg-stone-800/40 transition-colors border-b border-stone-800"
+                          onClick={() => setExpandedWeapons(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })}>
+                          <td className="py-2 pr-2">
+                            <ChevronDownIcon className={`w-4 h-4 text-stone-500 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span className="text-stone-100 font-medium">{item.name || <span className="text-stone-500 italic">Unnamed</span>}</span>
+                            {range && <span className="text-stone-400 text-xs ml-1.5">({range})</span>}
+                          </td>
+                          <td className="py-2 pr-3 text-center">
+                            <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>
+                          </td>
+                          <td className="py-2 pr-3 text-center">
+                            <span className="text-stone-100 font-bold text-base">{dmgValue}</span>
+                          </td>
+                          <td className="py-2 text-center" onClick={e => e.stopPropagation()}>
+                            {item.has_charges ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className="text-stone-400 tabular-nums text-xs">{item.charges_current ?? 0}/{item.charges_max ?? 0}</span>
+                                {!readOnly && (
+                                  <button type="button"
+                                    onClick={() => {
+                                      const curr = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                      if (curr <= 0) { setOutOfChargesModal({ name: item.name || 'this weapon' }); return }
+                                      setValue(`equipment.${i}.charges_current`, curr - 1, { shouldDirty: true })
+                                    }}
+                                    className="btn btn-secondary btn-sm py-0.5 px-2 text-xs text-purple-300 border-purple-800 hover:bg-purple-900/40">
+                                    Use
+                                  </button>
+                                )}
+                              </div>
+                            ) : <span className="text-stone-600">—</span>}
+                          </td>
+                        </tr>
+
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={5} className="pb-3 pt-1 px-1">
+                              <div className="bg-stone-800 border border-stone-700 rounded-lg px-3 py-2 space-y-2">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                  {(item.weapon_class || item.weapon_type) && (
+                                    <span className="text-xs bg-red-950 text-red-300 border border-red-900 px-2 py-0.5 rounded">
+                                      {item.weapon_class
+                                        ? `${item.weapon_class === 'simple' ? 'Simple' : 'Martial'} ${item.weapon_range === 'ranged' ? 'Ranged' : 'Melee'}`
+                                        : WEAPON_TYPES[item.weapon_type]}
+                                    </span>
+                                  )}
+                                  {item.weapon_specific && (
+                                    <span className="text-xs bg-stone-700 text-stone-300 border border-stone-600 px-2 py-0.5 rounded">
+                                      {item.weapon_specific}
+                                    </span>
+                                  )}
+                                </div>
+                                {props.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {props.map(p => {
+                                      if (p.name === 'Finesse') return (
+                                        <button key={p.name} type="button"
+                                          onClick={() => !readOnly && setValue(`equipment.${i}.finesse_active`, !item.finesse_active, { shouldDirty: true })}
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${item.finesse_active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600'} ${readOnly ? 'cursor-default' : 'cursor-pointer hover:opacity-80'}`}>
+                                          {p.extra ? `Finesse (${p.extra})` : 'Finesse'}
+                                        </button>
+                                      )
+                                      if (p.name === 'Versatile') return (
+                                        <button key={p.name} type="button"
+                                          onClick={() => !readOnly && setValue(`equipment.${i}.versatile_active`, !item.versatile_active, { shouldDirty: true })}
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${item.versatile_active ? 'bg-green-900 text-green-300 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600'} ${readOnly ? 'cursor-default' : 'cursor-pointer hover:opacity-80'}`}>
+                                          {p.extra ? `Versatile (${p.extra})` : 'Versatile'}
+                                        </button>
+                                      )
+                                      return (
+                                        <span key={p.name} className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded">
+                                          {p.extra ? `${p.name} (${p.extra})` : p.name}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                                {item.description
+                                  ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                  : <p className="text-stone-500 text-sm italic">No description.</p>
+                                }
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
+
+        {/* Per-class spellcasting */}
+        {allClasses.map((cls, classIndex) => {
+          if (!cls?.is_spellcaster || !cls?.casting_ability) return null
+          return (
+            <AttacksSpellcastingBlock
+              key={classIndex}
+              classIndex={classIndex}
+              className={cls.name}
+              castingAbility={cls.casting_ability}
+              control={control}
+              watch={watch}
+              setValue={setValue}
+              watchedProfBonus={watchedProfBonus}
+              watchedAbilities={watchedAbilities}
+            />
+          )
+        })}
       </Section>
 
       {/* Features */}

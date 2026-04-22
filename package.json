@@ -1,6 +1,6 @@
 {
   "name": "grimoire-server",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "commonjs",
   "scripts": {
     "start": "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && node server/index.js",

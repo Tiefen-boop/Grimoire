@@ -19,7 +19,8 @@ const CHARACTER_FIELDS = [
   'other_proficiencies','character_backstory','allies_and_organizations',
   'additional_features_and_traits','treasure',
   'age','height','weight','eyes','skin','hair','appearance_notes',
-  'passive_perception','conditions','notes','features_list','exhaustion','speed_base','max_hp_base'
+  'passive_perception','conditions','notes','features_list','exhaustion','speed_base','max_hp_base',
+  'unarmed_attack_modifier','unarmed_damage_roll'
 ]
 
 const JSON_FIELDS = new Set([

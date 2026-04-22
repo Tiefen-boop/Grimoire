@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS characters (
   -- Features list (JSON array of {name, description})
   features_list TEXT NOT NULL DEFAULT '[]',
 
+  -- Unarmed strike overrides
+  unarmed_attack_modifier TEXT NOT NULL DEFAULT '',
+  unarmed_damage_roll TEXT NOT NULL DEFAULT '',
+
   -- Notes
   notes TEXT NOT NULL DEFAULT '',
 

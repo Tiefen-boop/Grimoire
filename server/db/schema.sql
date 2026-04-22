@@ -121,6 +121,11 @@ CREATE TABLE IF NOT EXISTS characters (
   unarmed_attack_modifier TEXT NOT NULL DEFAULT '',
   unarmed_damage_roll TEXT NOT NULL DEFAULT '',
 
+  -- Proficiencies (JSON arrays)
+  weapon_profs TEXT NOT NULL DEFAULT '[]',
+  armor_profs TEXT NOT NULL DEFAULT '[]',
+  tool_profs TEXT NOT NULL DEFAULT '[]',
+
   -- Notes
   notes TEXT NOT NULL DEFAULT '',
 

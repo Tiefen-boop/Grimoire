@@ -60,7 +60,7 @@ const CATEGORIES = [
   },
 ]
 
-export default function EquipmentSection({ control, register, watch, setValue, readOnly, onEditingChange }) {
+export default function EquipmentSection({ control, register, watch, setValue, readOnly, onEditingChange, weaponProfs = [], armorProfs = [] }) {
   const { fields, append, remove } = useFieldArray({ control, name: 'equipment' })
 
   const [expanded, setExpanded]   = useState(new Set())
@@ -450,9 +450,22 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           {/* Primary row: chevron + name + action buttons */}
                           <div className="flex items-center gap-1.5">
                             <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                            <span className="flex-1 text-stone-100 text-sm font-medium truncate min-w-0">
-                              {item.name || <span className="text-stone-500 italic">Unnamed</span>}
-                            </span>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-stone-100 text-sm font-medium truncate block min-w-0">
+                                {item.name || <span className="text-stone-500 italic">Unnamed</span>}
+                              </span>
+                              {cat.type === 'weapon' && item.weapon_class && (() => {
+                                const classMatch = item.weapon_class === 'simple' ? weaponProfs.includes('Simple') : weaponProfs.includes('Martial')
+                                const specificMatch = !!(item.weapon_specific && weaponProfs.includes(item.weapon_specific))
+                                if (!classMatch && !specificMatch) return <span className="text-red-500 text-xs font-semibold leading-none">NOT PROFICIENT</span>
+                                return null
+                              })()}
+                              {cat.type === 'armor' && item.armor_category && (() => {
+                                const map = { light: 'Light', medium: 'Medium', heavy: 'Heavy', shield: 'Shield' }
+                                if (!armorProfs.includes(map[item.armor_category] || '')) return <span className="text-red-500 text-xs font-semibold leading-none">NOT PROFICIENT</span>
+                                return null
+                              })()}
+                            </div>
 
                             {/* Equip (armor only) */}
                             {cat.type === 'armor' && (

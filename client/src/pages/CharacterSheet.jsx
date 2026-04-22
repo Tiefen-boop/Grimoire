@@ -360,8 +360,9 @@ const SPELL_FILTERS_GENERAL = [
   { key: 'action',   label: 'Action',       accepts: (sp)      => /^(1 )?action$/i.test((sp.cast_time || '').trim()) },
   { key: 'bonus',    label: 'Bonus Action', accepts: (sp)      => /^(1 )?bonus action$/i.test((sp.cast_time || '').trim()) },
   { key: 'prepared', label: 'Prepared',     accepts: (sp, lvl) => lvl === 0 || !!sp.prepared },
-  { key: 'ritual',   label: 'Ritual',       accepts: (sp)      => !!sp.ritual },
-  { key: 'vocal',    label: 'Vocal',        accepts: (sp)      => !!sp.comp_v },
+  { key: 'ritual',        label: 'Ritual',        accepts: (sp)      => !!sp.ritual },
+  { key: 'concentration', label: 'Concentration', accepts: (sp)      => !!sp.concentration },
+  { key: 'vocal',         label: 'Vocal',         accepts: (sp)      => !!sp.comp_v },
   { key: 'somatic',  label: 'Somatic',      accepts: (sp)      => !!sp.comp_s },
 ]
 const SPELL_FILTERS_SCHOOLS = SPELL_SCHOOLS.map(s => ({ key: `school_${s}`, label: s, accepts: (sp) => sp.school === s }))
@@ -383,7 +384,7 @@ function setCookie(name, value) {
 
 const ATTACKS_SPELL_FILTERS_GENERAL = SPELL_FILTERS_GENERAL.filter(f => f.key !== 'prepared')
 
-function AttacksSpellcastingBlock({ classIndex, className, castingAbility, control, watch, setValue, watchedProfBonus, watchedAbilities }) {
+function AttacksSpellcastingBlock({ classIndex, className, castingAbility, control, watch, setValue, watchedProfBonus, watchedAbilities, concentratingInfo, onConcentrate }) {
   const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
 
   const cookieKey = `grimoire_atk_exp_${(className || 'unknown').replace(/\W+/g, '_')}`
@@ -560,10 +561,21 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                               onClick={() => setExpandedSpells(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}>
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isOpen2 ? '' : '-rotate-90'}`} />
                               <div className="flex-1 min-w-0">
-                                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-                                  <span className="text-stone-100 text-sm">
+                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                  <span className="text-stone-100 text-sm shrink-0">
                                     {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
                                   </span>
+                                  {sp.concentration && (
+                                    <button type="button"
+                                      onClick={e => { e.stopPropagation(); onConcentrate(key, sp.name || 'Unnamed spell') }}
+                                      className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${
+                                        concentratingInfo?.key === key
+                                          ? 'bg-violet-900/60 text-violet-300 border-violet-700 hover:bg-violet-900'
+                                          : 'bg-transparent text-stone-600 border-stone-700 hover:text-violet-400 hover:border-violet-700'
+                                      }`}>
+                                      {concentratingInfo?.key === key ? 'Concentrating' : 'Concentrate'}
+                                    </button>
+                                  )}
                                   {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
                                 </div>
                                 {(sp.cast_time || sp.range) && (
@@ -594,6 +606,20 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
         </>
       )}
     </div>
+  )
+}
+
+function AutoResizeTextarea({ registerResult, className, style, ...props }) {
+  const { ref: rhfRef, ...rest } = registerResult
+  return (
+    <textarea
+      {...rest}
+      {...props}
+      className={className}
+      style={{ ...style, overflow: 'hidden', resize: 'none' }}
+      ref={el => { rhfRef(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }}
+      onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
+    />
   )
 }
 
@@ -636,7 +662,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   }
   function addSpellAtLevel(lvl) {
     pendingNewSpell.current = true
-    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
+    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
   }
   function startEditSpell(fieldId) { setEditingSpells(prev => new Set([...prev, fieldId])) }
@@ -676,16 +702,18 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-4 mb-5">
-        <div className="stat-box">
-          <div className="label text-xs text-center">Spell Save DC</div>
-          <div className="text-2xl font-bold text-center text-stone-100 py-1">{saveDC}</div>
+      <div className="mb-5">
+        <div className="flex justify-around mb-2">
+          <div className="stat-box text-center min-w-24">
+            <div className="label text-xs text-center">Spell Save DC</div>
+            <div className="text-2xl font-bold text-center text-stone-100 py-1">{saveDC}</div>
+          </div>
+          <div className="stat-box text-center min-w-24">
+            <div className="label text-xs text-center">Spell Attack</div>
+            <div className="text-2xl font-bold text-center text-stone-100 py-1">{fmtMod(attackBonus)}</div>
+          </div>
         </div>
-        <div className="stat-box">
-          <div className="label text-xs text-center">Spell Attack</div>
-          <div className="text-2xl font-bold text-center text-stone-100 py-1">{fmtMod(attackBonus)}</div>
-        </div>
-        <span className="text-stone-500 text-xs">{ABILITY_SHORT[castingAbility]} · Prof +{watchedProfBonus}</span>
+        <div className="text-center text-stone-500 text-xs">{ABILITY_SHORT[castingAbility]} · Prof +{watchedProfBonus}</div>
       </div>
 
       {/* Filters */}
@@ -829,6 +857,10 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                                 <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.ritual`)} className="accent-stone-500" />
                                 Ritual
                               </label>
+                              <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
+                                <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.concentration`)} className="accent-violet-500" />
+                                Concentration
+                              </label>
                             </div>
                             {/* Row 3: components */}
                             <div className="flex gap-3 flex-wrap items-center">
@@ -844,8 +876,12 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                               )}
                             </div>
                             {/* Row 4: description */}
-                            <textarea {...register(`classes.${classIndex}.spells.${i}.description`)} className="input w-full resize-none text-sm"
-                              rows={2} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                            <AutoResizeTextarea
+                              registerResult={register(`classes.${classIndex}.spells.${i}.description`)}
+                              className="input w-full text-sm"
+                              placeholder="Description (optional)"
+                              style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
+                            />
                           </div>
                         ) : (
                           <div>
@@ -854,35 +890,38 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                               onClick={() => toggleExpandSpell(field.id)}>
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
                               <div className="flex-1 min-w-0">
-                                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-                                  <span className="text-stone-100 text-sm">
-                                    {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
-                                  </span>
-                                  {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
-                                  {lvl > 0 && (
-                                    <button type="button"
-                                      onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
-                                      className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
-                                      Prep
-                                    </button>
-                                  )}
+                                <div className="flex items-center gap-1.5">
+                                  <div className="flex flex-wrap flex-1 min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
+                                    <span className="text-stone-100 text-sm">
+                                      {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                    </span>
+                                    {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
+                                    {lvl > 0 && (
+                                      <button type="button"
+                                        onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
+                                        className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
+                                        Prep
+                                      </button>
+                                    )}
+                                  </div>
                                   {!readOnly && (
-                                    <>
+                                    <div className="flex items-center gap-0.5 shrink-0">
                                       <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
-                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
+                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700">
                                         <PencilIcon className="w-3.5 h-3.5" />
                                       </button>
                                       <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
-                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
+                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700">
                                         <TrashIcon className="w-3.5 h-3.5" />
                                       </button>
-                                    </>
+                                    </div>
                                   )}
                                 </div>
-                                {(sp.cast_time || sp.range) && (
+                                {(sp.cast_time || sp.range || sp.concentration) && (
                                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                                     {sp.cast_time && <span className="text-xs text-stone-500"><span className="text-stone-600">Casting Time:</span> {sp.cast_time}</span>}
                                     {sp.range     && <span className="text-xs text-stone-500"><span className="text-stone-600">Range:</span> {sp.range}</span>}
+                                    {sp.concentration && <span className="text-xs text-violet-400 font-medium">Concentration</span>}
                                   </div>
                                 )}
                               </div>
@@ -1081,6 +1120,16 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const pendingNewClass      = useRef(false)
   const [levelUpModal,      setLevelUpModal]      = useState(null) // { index, className }
   const [deleteClassModal,  setDeleteClassModal]  = useState(null) // { index, className, isSpellcaster }
+  const [concentratingInfo, setConcentratingInfo] = useState(null) // { key, name }
+  const [concentratePending, setConcentratePending] = useState(null) // { key, name }
+
+  function handleConcentrate(key, name) {
+    if (!concentratingInfo || concentratingInfo.key === key) {
+      setConcentratingInfo(prev => prev?.key === key ? null : { key, name })
+    } else {
+      setConcentratePending({ key, name })
+    }
+  }
 
   useEffect(() => {
     if (pendingNewFeature.current && featureFields.length > prevFeaturesLengthRef.current) {
@@ -2059,6 +2108,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
               setValue={setValue}
               watchedProfBonus={watchedProfBonus}
               watchedAbilities={watchedAbilities}
+              concentratingInfo={concentratingInfo}
+              onConcentrate={handleConcentrate}
             />
           )
         })}
@@ -2145,40 +2196,46 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     <div className="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none"
                       onClick={() => toggleExpandFeature(field.id)}>
                       <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                      <div className="flex-1 min-w-0 flex items-center gap-1">
-                        <span className="text-stone-100 text-sm font-medium truncate min-w-0">
-                          {featName || <span className="text-stone-500 italic">Unnamed feature</span>}
-                        </span>
-                        {featSource && (
-                          <span className="text-stone-500 text-xs shrink-0">({featSource})</span>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                          {/* Group 1: name + source — break within this group only if name alone is too wide */}
+                          <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                            <span className="text-stone-100 text-sm font-medium">
+                              {featName || <span className="text-stone-500 italic">Unnamed feature</span>}
+                            </span>
+                            {featSource && (
+                              <span className="text-stone-500 text-xs">({featSource})</span>
+                            )}
+                          </div>
+                          {/* Group 2: charges + Use — wraps as a unit after group 1 */}
+                          {featHasCharges && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-stone-400 text-xs">{featChargesCur ?? 0}/{featChargesMax ?? 0}</span>
+                              {rechLabel && <span className="text-stone-500 text-xs">({rechLabel})</span>}
+                              {!readOnly && (
+                                <button type="button"
+                                  onClick={e => { e.stopPropagation(); handleUseFeature(i) }}
+                                  className="btn btn-secondary btn-sm py-0.5 px-2 text-xs text-purple-300 border-purple-800 hover:bg-purple-900/40">
+                                  Use
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      {featHasCharges && (
-                        <span className="text-stone-400 text-xs shrink-0">{featChargesCur ?? 0}/{featChargesMax ?? 0}</span>
-                      )}
-                      {featHasCharges && rechLabel && (
-                        <span className="text-stone-500 text-xs shrink-0">({rechLabel})</span>
-                      )}
-                      {featHasCharges && !readOnly && (
-                        <button type="button"
-                          onClick={e => { e.stopPropagation(); handleUseFeature(i) }}
-                          className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-purple-300 border-purple-800 hover:bg-purple-900/40">
-                          Use
-                        </button>
-                      )}
                       {!readOnly && (
-                        <>
+                        <div className="flex items-center gap-0.5 shrink-0">
                           <button type="button"
                             onClick={e => { e.stopPropagation(); startEditFeature(field.id) }}
-                            className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0" title="Edit feature">
+                            className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700" title="Edit feature">
                             <PencilIcon className="w-4 h-4" />
                           </button>
                           <button type="button"
                             onClick={e => { e.stopPropagation(); handleRemoveFeature(i) }}
-                            className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
+                            className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700">
                             <TrashIcon className="w-4 h-4" />
                           </button>
-                        </>
+                        </div>
                       )}
                     </div>
                     {isExpanded && (
@@ -2426,6 +2483,14 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Modal>
       <Modal open={!!outOfChargesModal} title="No charges remaining" onCancel={() => setOutOfChargesModal(null)}>
         <strong>{outOfChargesModal?.name}</strong> has no charges remaining.
+      </Modal>
+
+      {/* Concentration switch confirmation */}
+      <Modal open={!!concentratePending} title="Already Concentrating"
+        onConfirm={() => { setConcentratingInfo(concentratePending); setConcentratePending(null) }}
+        onCancel={() => setConcentratePending(null)}
+        confirmLabel="Switch">
+        Already concentrating on <strong>{concentratingInfo?.name}</strong><br />Are you sure?
       </Modal>
 
       {/* Save button at bottom too */}

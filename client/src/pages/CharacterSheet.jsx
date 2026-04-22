@@ -42,6 +42,9 @@ const SKILLS = [
 ]
 
 const ALIGNMENTS = ['Lawful Good','Neutral Good','Chaotic Good','Lawful Neutral','True Neutral','Chaotic Neutral','Lawful Evil','Neutral Evil','Chaotic Evil']
+
+// XP_THRESHOLDS[level] = total XP needed to reach that level (index 0 unused)
+const XP_THRESHOLDS = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]
 const SPELL_LEVELS = [0,1,2,3,4,5,6,7,8,9]
 
 // Spell level color palette — index = spell level (0=cantrip … 9=9th)
@@ -364,10 +367,10 @@ function FreeTagInput({ label, selected, onChange, readOnly, placeholder }) {
   )
 }
 
-function Section({ title, children, defaultOpen = true }) {
+function Section({ title, children, defaultOpen = true, extraClass = '' }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="card mb-4">
+    <div className={`card mb-4 ${extraClass}`}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -1144,6 +1147,8 @@ export default function CharacterSheet() {
   const maxHpFocused  = useRef(false)
   const [abilityDisplay, setAbilityDisplay] = useState({})
   const abilityFocusedRef = useRef(null)
+  const [expDisplay, setExpDisplay] = useState(null)
+  const expFocusedRef = useRef(false)
   const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
   const [concentrationLostPrompt, setConcentrationLostPrompt] = useState(null)
   const autoSaveTimer = useRef(null)
@@ -1284,6 +1289,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   function confirmLevelUp() {
     const curr = parseInt(watch(`classes.${levelUpModal.index}.level`)) || 0
     setValue(`classes.${levelUpModal.index}.level`, curr + 1, { shouldDirty: true })
+    setValue('experience_points', 0, { shouldDirty: true })
     setLevelUpModal(null)
   }
 
@@ -1315,6 +1321,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchedToolProfs   = watch('tool_profs')   || []
   const watchedLanguages   = watch('languages')    || []
   const allClasses        = watch('classes') || []
+  const watchedXp         = watch('experience_points') ?? 0
+  const watchedInspiration = watch('inspiration') ?? 0
+  const _xpTotalLevel = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
+  const _xpCap = (_xpTotalLevel + 1) <= 20 ? XP_THRESHOLDS[_xpTotalLevel + 1] : null
+  const xpFull = !!(_xpCap && watchedXp >= _xpCap)
 
   const watchedMaxHp  = watch('max_hp')     ?? 0
   const watchedCurrHp = watch('current_hp') ?? 0
@@ -1526,6 +1537,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
+      <style>{`
+        @keyframes xp-shimmer {
+          0%, 100% { box-shadow: 0 0 6px 2px rgba(234,179,8,0.5), 0 0 14px 4px rgba(202,138,4,0.25); }
+          50%       { box-shadow: 0 0 14px 5px rgba(234,179,8,0.8), 0 0 28px 10px rgba(202,138,4,0.4); }
+        }
+        @keyframes magic-shimmer {
+          0%, 100% { box-shadow: 0 0 6px 2px rgba(167,139,250,0.5), 0 0 14px 4px rgba(139,92,246,0.25); }
+          50%       { box-shadow: 0 0 16px 6px rgba(167,139,250,0.8), 0 0 32px 12px rgba(139,92,246,0.4); }
+        }
+        .xp-full-active    { animation: xp-shimmer    1.8s ease-in-out infinite; }
+        .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
+      `}</style>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-stone-100">
@@ -1546,7 +1569,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </div>
 
       {/* Basic Info */}
-      <Section title="Basic Information">
+      <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''}>
         {/* Row 1 on desktop: Name · Race · Background · Alignment
             Mobile: Name+Race on row 1, Background+Alignment on row 2 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -1577,7 +1600,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -1667,21 +1690,58 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
         {/* Secondary stats row */}
         <div className="grid grid-cols-3 gap-3 mt-4">
-          <div className="stat-box">
-            <div className="label text-xs text-center">Experience Points</div>
-            <input type="number" min={0} {...register('experience_points', { valueAsNumber: true })}
-              className="input text-center text-xl font-bold p-1 no-spinner" disabled={readOnly} />
-          </div>
+          {/* Experience Points with XP bar */}
+          {(() => {
+            const totalLevel = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
+            const nextLevel = totalLevel + 1
+            const xpCap = nextLevel <= 20 ? XP_THRESHOLDS[nextLevel] : null
+            const xpFill = xpCap ? Math.min(100, (watchedXp / xpCap) * 100) : 0
+            return (
+              <div className="stat-box overflow-hidden relative">
+                {xpCap && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-yellow-600/50 to-amber-400/35 transition-all duration-300 origin-left"
+                    style={{ transform: `scaleX(${xpFill / 100})` }} />
+                )}
+                <div className="relative label text-xs text-center">Experience{xpCap ? <span className="text-stone-500"> / {xpCap.toLocaleString()}</span> : ''}</div>
+                <input type="text" inputMode="numeric"
+                  value={expFocusedRef.current ? (expDisplay ?? '') : watchedXp}
+                  onFocus={() => { expFocusedRef.current = true; setExpDisplay(String(watchedXp)) }}
+                  onChange={e => setExpDisplay(e.target.value)}
+                  onBlur={() => {
+                    expFocusedRef.current = false
+                    const raw = (expDisplay ?? '').trim()
+                    const prev = watchedXp
+                    if (!raw) { setExpDisplay(null); return }
+                    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+                    let result = leadingOp ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`) : parseArithExpr(raw)
+                    if (result === null) result = prev
+                    const final = xpCap ? Math.min(xpCap, Math.max(0, Math.round(result))) : Math.max(0, Math.round(result))
+                    setValue('experience_points', final, { shouldDirty: true })
+                    setExpDisplay(null)
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                  className="relative no-spinner bg-transparent text-center text-xl font-bold w-full focus:outline-none py-0.5 text-stone-100"
+                  disabled={readOnly} />
+              </div>
+            )
+          })()}
           <div className="stat-box">
             <div className="label text-xs text-center">Proficiency Bonus</div>
             <div className="text-xl font-bold text-center text-stone-100 py-0.5">+{watchedProfBonus}</div>
             <input type="hidden" {...register('proficiency_bonus', { valueAsNumber: true })} />
           </div>
-          <div className="stat-box">
-            <div className="label text-xs text-center">Inspiration</div>
-            <input type="number" min={0} {...register('inspiration', { valueAsNumber: true })}
-              className="input text-center text-xl font-bold p-1 no-spinner" disabled={readOnly} />
-          </div>
+          {/* Inspiration toggle */}
+          <button type="button" disabled={readOnly}
+            onClick={() => setValue('inspiration', watchedInspiration ? 0 : 1, { shouldDirty: true })}
+            className={`stat-box flex items-center justify-center p-2 w-full transition-all duration-300 ${
+              watchedInspiration
+                ? 'bg-violet-900/30 border-violet-500'
+                : 'hover:bg-stone-700/40'
+            }`}>
+            <span className={`font-semibold text-sm ${watchedInspiration ? 'text-violet-300' : 'text-stone-500'}`}>
+              {watchedInspiration ? '✦ Inspired' : 'Inspire'}
+            </span>
+          </button>
         </div>
       </Section>
 

@@ -1859,10 +1859,34 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`)
                       : parseArithExpr(raw)
                     if (result === null) result = prev
-                    const final = Math.max(0, Math.round(result))
-                    setValue('temp_hp', final, { shouldDirty: true })
-                    setTempHpDisplayStr(final > 0 ? String(final) : '')
-                    checkConcentrationSave(prev - final)
+                    if (result < 0) {
+                      // Damage exceeds temp HP — carry overflow to current HP
+                      const overflow = Math.round(Math.abs(result))
+                      setValue('temp_hp', 0, { shouldDirty: true })
+                      setTempHpDisplayStr('')
+                      const currHp = watchedCurrHp ?? 0
+                      const newCurrHp = Math.max(0, currHp - overflow)
+                      setValue('current_hp', newCurrHp, { shouldDirty: true })
+                      const totalDamage = prev + overflow
+                      if (newCurrHp === 0 && currHp > 0) {
+                        const current = watch('conditions') || []
+                        if (!current.includes('Unconscious')) {
+                          let newConds = [...current, 'Unconscious']
+                          for (const c of (CONDITION_CHAINS['Unconscious'] || [])) {
+                            if (!newConds.includes(c)) newConds.push(c)
+                          }
+                          setValue('conditions', newConds, { shouldDirty: true })
+                        }
+                        loseConcentrationDirect()
+                      } else {
+                        checkConcentrationSave(totalDamage)
+                      }
+                    } else {
+                      const final = Math.max(0, Math.round(result))
+                      setValue('temp_hp', final, { shouldDirty: true })
+                      setTempHpDisplayStr(final > 0 ? String(final) : '')
+                      checkConcentrationSave(prev - final)
+                    }
                   }}
                   onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className="no-spinner bg-transparent text-stone-100 text-sm font-bold text-center w-16 focus:outline-none font-sans placeholder:text-stone-500"

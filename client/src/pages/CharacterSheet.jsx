@@ -259,6 +259,12 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
       (parseInt(watch(`classes.${classIndex}.spell_slots.${l}.left`)) || 0) > 0
     )
   }
+  function hasMaxSlotAtOrAbove(lvl) {
+    if (lvl === 0) return true
+    return SPELL_LEVELS.filter(l => l >= lvl).some(l =>
+      (parseInt(watch(`classes.${classIndex}.spell_slots.${l}.max`)) || 0) > 0
+    )
+  }
 
   return (
     <div className="mt-5 border-t border-stone-700 pt-4">
@@ -307,13 +313,13 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
           {/* Spellbook — read-only */}
           <div className="space-y-1">
             {SPELL_LEVELS.map(lvl => {
-              if (!hasSlotAtOrAbove(lvl)) return null
+              if (!hasMaxSlotAtOrAbove(lvl)) return null
               const c = SPELL_LEVEL_COLORS[lvl]
               const levelSpells = allSpells
                 .map((sp, i) => ({ sp, i }))
                 .filter(({ sp }) => (sp?.level ?? 0) === lvl && (lvl === 0 || !!sp?.prepared))
-              if (levelSpells.length === 0) return null
-              const visibleSpells = levelSpells.filter(({ sp }) => spellVisible(sp, lvl))
+              const slotsAvailable = hasSlotAtOrAbove(lvl)
+              const visibleSpells  = slotsAvailable ? levelSpells.filter(({ sp }) => spellVisible(sp, lvl)) : []
               const isFiltering   = showFilters.length > 0 || hideFilters.length > 0
               const isOpen        = expandedLevels.has(lvl)
 
@@ -325,6 +331,15 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                     <span className={`text-sm font-semibold ${c.text} flex-1`}>{c.label}</span>
                     {lvl > 0 && (
                       <div className="flex items-center gap-1.5 text-xs" onClick={e => e.stopPropagation()}>
+                        <button type="button"
+                          onClick={() => {
+                            const max  = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`))  || 0
+                            const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+                            if (left < max) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left + 1, { shouldDirty: true })
+                          }}
+                          className={`px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                          Add slot
+                        </button>
                         <span className={`${c.text} opacity-60`}>Slots:</span>
                         <span className={`${c.text} tabular-nums`}>
                           {parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0}/
@@ -349,7 +364,16 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
 
                   {isOpen && (
                     <div className="divide-y divide-stone-700/40">
-                      {visibleSpells.length === 0 && (
+                      {!slotsAvailable && levelSpells.length === 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No remaining slots. No spells.</p>
+                      )}
+                      {!slotsAvailable && levelSpells.length > 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No remaining slots.</p>
+                      )}
+                      {slotsAvailable && levelSpells.length === 0 && (
+                        <p className="text-stone-600 text-xs italic px-3 py-2">No spells.</p>
+                      )}
+                      {slotsAvailable && levelSpells.length > 0 && visibleSpells.length === 0 && (
                         <p className="text-stone-600 text-xs italic px-3 py-2">No spells match the active filters.</p>
                       )}
                       {visibleSpells.map(({ sp, i }) => {
@@ -366,14 +390,18 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                               onClick={() => setExpandedSpells(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}>
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isOpen2 ? '' : '-rotate-90'}`} />
                               <div className="flex-1 min-w-0">
-                                <div className="text-stone-100 text-sm break-words">
-                                  {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                                  <span className="text-stone-100 text-sm">
+                                    {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                  </span>
+                                  {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
                                 </div>
-                                {sp.ritual && <div className="text-stone-500 text-xs italic">(ritual)</div>}
-                                <div className="flex flex-wrap gap-1 mt-0.5">
-                                  {sp.cast_time && <span className="text-xs text-stone-500">{sp.cast_time}</span>}
-                                  {sp.range     && <span className="text-xs text-stone-500">{sp.range}</span>}
-                                </div>
+                                {(sp.cast_time || sp.range) && (
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                    {sp.cast_time && <span className="text-xs text-stone-500"><span className="text-stone-600">Casting Time:</span> {sp.cast_time}</span>}
+                                    {sp.range     && <span className="text-xs text-stone-500"><span className="text-stone-600">Range:</span> {sp.range}</span>}
+                                  </div>
+                                )}
                               </div>
                             </div>
                             {isOpen2 && hasDetail && (
@@ -526,6 +554,15 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                 <span className={`text-sm font-semibold ${c.text} flex-1`}>{c.label}</span>
                 {lvl > 0 && (
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    <button type="button"
+                      onClick={() => {
+                        const max  = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`))  || 0
+                        const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+                        if (left < max) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left + 1, { shouldDirty: true })
+                      }}
+                      className={`text-xs px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
+                      Add slot
+                    </button>
                     <span className={`text-xs ${c.text} opacity-60`}>Slots:</span>
                     <input type="number" min={0}
                       {...register(`classes.${classIndex}.spell_slots.${lvl}.left`, {
@@ -647,13 +684,11 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                               onClick={() => toggleExpandSpell(field.id)}>
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
                               <div className="flex-1 min-w-0">
-                                <div className="text-stone-100 text-sm break-words">
-                                  {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
-                                </div>
-                                {sp.ritual && (
-                                  <div className="text-stone-500 text-xs italic">(ritual)</div>
-                                )}
-                                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                                  <span className="text-stone-100 text-sm">
+                                    {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
+                                  </span>
+                                  {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
                                   {lvl > 0 && (
                                     <button type="button"
                                       onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
@@ -661,21 +696,25 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                                       Prep
                                     </button>
                                   )}
-                                  {sp.cast_time && <span className="text-xs text-stone-500">{sp.cast_time}</span>}
-                                  {sp.range && <span className="text-xs text-stone-500">{sp.range}</span>}
                                   {!readOnly && (
                                     <>
                                       <button type="button" onClick={e => { e.stopPropagation(); startEditSpell(field.id) }}
-                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700">
+                                        className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
                                         <PencilIcon className="w-3.5 h-3.5" />
                                       </button>
                                       <button type="button" onClick={e => { e.stopPropagation(); removeSpellByIndex(field.id, i) }}
-                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700">
+                                        className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
                                         <TrashIcon className="w-3.5 h-3.5" />
                                       </button>
                                     </>
                                   )}
                                 </div>
+                                {(sp.cast_time || sp.range) && (
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                    {sp.cast_time && <span className="text-xs text-stone-500"><span className="text-stone-600">Casting Time:</span> {sp.cast_time}</span>}
+                                    {sp.range     && <span className="text-xs text-stone-500"><span className="text-stone-600">Range:</span> {sp.range}</span>}
+                                  </div>
+                                )}
                               </div>
                             </div>
                             {/* Expanded content */}

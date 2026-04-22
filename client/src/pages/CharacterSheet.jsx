@@ -179,6 +179,34 @@ function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
 }
 
+function parseArithExpr(str) {
+  const tokens = String(str).replace(/\s+/g, '').match(/\d+\.?\d*|[+\-*/()]/g) || []
+  let pos = 0
+  function parseExpr() {
+    let left = parseTerm()
+    while (pos < tokens.length && (tokens[pos] === '+' || tokens[pos] === '-')) {
+      const op = tokens[pos++]; const right = parseTerm()
+      left = op === '+' ? left + right : left - right
+    }
+    return left
+  }
+  function parseTerm() {
+    let left = parseFactor()
+    while (pos < tokens.length && (tokens[pos] === '*' || tokens[pos] === '/')) {
+      const op = tokens[pos++]; const right = parseFactor()
+      left = op === '*' ? left * right : right !== 0 ? left / right : left
+    }
+    return left
+  }
+  function parseFactor() {
+    if (pos >= tokens.length) return 0
+    if (tokens[pos] === '(') { pos++; const val = parseExpr(); pos++; return val }
+    const n = parseFloat(tokens[pos++])
+    return isNaN(n) ? 0 : n
+  }
+  try { const r = parseExpr(); return isFinite(r) ? r : null } catch { return null }
+}
+
 function checkWeaponProficiency(item, weaponProfs) {
   if (!item.weapon_class) return null
   const classMatch = item.weapon_class === 'simple' ? weaponProfs.includes('Simple') : weaponProfs.includes('Martial')
@@ -1101,6 +1129,11 @@ export default function CharacterSheet() {
   const [error, setError] = useState('')
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
+  const [currHpDisplay, setCurrHpDisplay] = useState(null)
+  const [maxHpDisplay,  setMaxHpDisplay]  = useState(null)
+  const currHpFocused = useRef(false)
+  const maxHpFocused  = useRef(false)
+  const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
   const autoSaveTimer = useRef(null)
   const savedValuesRef = useRef(null)
   const isInitialLoadRef   = useRef(false)
@@ -1129,6 +1162,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     } else {
       setConcentratePending({ key, name })
     }
+  }
+
+  function checkConcentrationSave(damage) {
+    if (!concentratingInfo || damage <= 0) return
+    const dc = Math.max(10, Math.floor(damage / 2))
+    setConcentrationSavePrompt({ spellName: concentratingInfo.name, dc })
   }
 
   useEffect(() => {
@@ -1718,36 +1757,59 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           <div className="flex flex-col gap-1">
             {/* HP Bar */}
             <div className="relative h-12 rounded-lg overflow-hidden bg-stone-900">
+              <div className="absolute inset-y-0 left-0 bg-red-950 transition-all duration-200 rounded-lg"
+                style={{ width: `${hpBarWidthPct}%` }} />
               <div className="absolute inset-y-0 left-0 bg-red-700 transition-all duration-200 rounded-lg"
                 style={{ width: `${redFillPct}%` }} />
               <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
                 <span className="text-red-200 font-semibold text-sm select-none">HP</span>
-                <input type="number"
-                  {...register('current_hp', {
-                    valueAsNumber: true,
-                    onChange: e => {
-                      const raw = e.target.value
-                      if (raw === '') { setValue('current_hp', 0, { shouldDirty: true }); return }
-                      const val = parseInt(raw)
-                      const max = parseInt(watch('max_hp')) || 0
-                      if (isNaN(val) || val < 0) setValue('current_hp', 0, { shouldDirty: true })
-                      else if (val > max) setValue('current_hp', max, { shouldDirty: true })
-                    }
-                  })}
+                <input type="text" inputMode="numeric"
+                  value={currHpFocused.current ? (currHpDisplay ?? '') : (watchedCurrHp ?? 0)}
+                  onFocus={() => { currHpFocused.current = true; setCurrHpDisplay(String(watchedCurrHp ?? 0)) }}
+                  onChange={e => setCurrHpDisplay(e.target.value)}
+                  onBlur={() => {
+                    currHpFocused.current = false
+                    const raw = (currHpDisplay ?? '').trim()
+                    const prev = watchedCurrHp ?? 0
+                    const max  = watchedMaxHp  ?? 0
+                    if (!raw) { setCurrHpDisplay(null); return }
+                    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+                    let result = leadingOp
+                      ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`)
+                      : parseArithExpr(raw)
+                    if (result === null) result = prev
+                    const final = Math.min(max, Math.max(0, Math.round(result)))
+                    setValue('current_hp', final, { shouldDirty: true })
+                    setCurrHpDisplay(null)
+                    checkConcentrationSave(prev - final)
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-right w-12 focus:outline-none font-sans"
                   disabled={readOnly} />
                 <span className="text-stone-400 font-bold text-lg select-none">/</span>
-                <input type="number"
-                  {...register('max_hp', {
-                    valueAsNumber: true,
-                    onChange: e => {
-                      const raw = e.target.value
-                      if (raw === '') { setValue('max_hp', 0, { shouldDirty: true }); setValue('current_hp', 0, { shouldDirty: true }); return }
-                      const newMax = parseInt(raw) || 0
-                      const curr = parseInt(watch('current_hp')) || 0
-                      if (curr > newMax) setValue('current_hp', newMax, { shouldDirty: true })
-                    }
-                  })}
+                <input type="text" inputMode="numeric"
+                  value={maxHpFocused.current ? (maxHpDisplay ?? '') : (watchedMaxHp ?? 0)}
+                  onFocus={() => { maxHpFocused.current = true; setMaxHpDisplay(String(watchedMaxHp ?? 0)) }}
+                  onChange={e => setMaxHpDisplay(e.target.value)}
+                  onBlur={() => {
+                    maxHpFocused.current = false
+                    const raw = (maxHpDisplay ?? '').trim()
+                    const prev = watchedMaxHp ?? 0
+                    if (!raw) { setMaxHpDisplay(null); return }
+                    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+                    let result = leadingOp
+                      ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`)
+                      : parseArithExpr(raw)
+                    if (result === null) result = prev
+                    const newMax = Math.max(0, Math.round(result))
+                    setValue('max_hp', newMax, { shouldDirty: true })
+                    const curr = watchedCurrHp ?? 0
+                    const clampedCurr = Math.min(curr, newMax)
+                    if (curr > newMax) setValue('current_hp', clampedCurr, { shouldDirty: true })
+                    setMaxHpDisplay(null)
+                    checkConcentrationSave(prev - newMax)
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-left w-12 focus:outline-none font-sans"
                   disabled={readOnly} />
               </div>
@@ -1761,20 +1823,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 {tempHpDisplayStr !== '' && (
                   <span className="text-green-200 font-semibold text-xs select-none">Temp HP</span>
                 )}
-                <input type="number"
+                <input type="text" inputMode="numeric"
                   value={tempHpDisplayStr}
                   placeholder={tempHpDisplayStr === '' ? 'Temp HP' : ''}
-                  onChange={e => {
-                    const str = e.target.value
-                    if (str === '') {
-                      setTempHpDisplayStr('')
-                      setValue('temp_hp', 0, { shouldDirty: true })
-                    } else {
-                      const val = Math.max(0, parseInt(str) || 0)
-                      setTempHpDisplayStr(String(val))
-                      setValue('temp_hp', val, { shouldDirty: true })
-                    }
+                  onChange={e => setTempHpDisplayStr(e.target.value)}
+                  onBlur={() => {
+                    const raw = tempHpDisplayStr.trim()
+                    if (raw === '') { setValue('temp_hp', 0, { shouldDirty: true }); return }
+                    const prev = watchedTempHp ?? 0
+                    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+                    let result = leadingOp
+                      ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`)
+                      : parseArithExpr(raw)
+                    if (result === null) result = prev
+                    const final = Math.max(0, Math.round(result))
+                    setValue('temp_hp', final, { shouldDirty: true })
+                    setTempHpDisplayStr(final > 0 ? String(final) : '')
+                    checkConcentrationSave(prev - final)
                   }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className="no-spinner bg-transparent text-stone-100 text-sm font-bold text-center w-16 focus:outline-none font-sans placeholder:text-stone-500"
                   disabled={readOnly} />
               </div>
@@ -2484,6 +2551,37 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <Modal open={!!outOfChargesModal} title="No charges remaining" onCancel={() => setOutOfChargesModal(null)}>
         <strong>{outOfChargesModal?.name}</strong> has no charges remaining.
       </Modal>
+
+      {/* Concentration save prompt */}
+      {concentrationSavePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60" />
+          <div className="relative bg-stone-900 border border-stone-700 rounded-xl p-6 max-w-sm w-full shadow-xl">
+            <h3 className="text-lg font-bold text-stone-100 mb-4 text-center">
+              Keep concentration on{' '}
+              <span className="text-violet-300">{concentrationSavePrompt.spellName}</span>?
+            </h3>
+            <div className="flex justify-center mb-5">
+              <div className="stat-box text-center min-w-28">
+                <div className="label text-xs text-center">Constitution Save DC</div>
+                <div className="text-3xl font-bold text-center text-stone-100 py-1">{concentrationSavePrompt.dc}</div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="button"
+                onClick={() => setConcentrationSavePrompt(null)}
+                className="btn flex-1 bg-green-800 border-green-700 text-green-100 hover:bg-green-700">
+                Success
+              </button>
+              <button type="button"
+                onClick={() => { setConcentratingInfo(null); setConcentrationSavePrompt(null) }}
+                className="btn flex-1 bg-red-900 border-red-800 text-red-100 hover:bg-red-800">
+                Failure
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Concentration switch confirmation */}
       <Modal open={!!concentratePending} title="Already Concentrating"

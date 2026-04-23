@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api/client'
-import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, UserCircleIcon } from '@heroicons/react/24/outline'
 
 export default function Characters() {
   const [characters, setCharacters] = useState([])
@@ -38,10 +38,19 @@ export default function Characters() {
           {characters.map(c => (
             <div key={c.id} className="card hover:border-stone-500 transition-colors relative group">
               <Link to={`/characters/${c.id}`} className="block">
-                <div className="font-bold text-lg text-stone-100 pr-8">{c.name || 'Unnamed'}</div>
-                <div className="text-stone-400 text-sm mt-1">
-                  {[c.race, c.class].filter(Boolean).join(' · ')}
-                  {c.level ? ` · Level ${c.level}` : ''}
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-stone-800 border border-stone-700 shrink-0 flex items-center justify-center">
+                    {c.portrait
+                      ? <img src={c.portrait} className="w-full h-full object-cover" alt="portrait" />
+                      : <UserCircleIcon className="w-7 h-7 text-stone-600" />}
+                  </div>
+                  <div className="flex-1 min-w-0 pr-6">
+                    <div className="font-bold text-lg text-stone-100 truncate">{c.name || 'Unnamed'}</div>
+                    <div className="text-stone-400 text-sm">
+                      {[c.race, c.class].filter(Boolean).join(' · ')}
+                      {c.level ? ` · Level ${c.level}` : ''}
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-3 flex items-center gap-3 text-sm text-stone-300">
                   <span>HP: <span className="text-green-400">{c.current_hp}</span>/{c.max_hp}</span>

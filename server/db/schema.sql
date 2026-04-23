@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS characters (
   tool_profs TEXT NOT NULL DEFAULT '[]',
   languages TEXT NOT NULL DEFAULT '[]',
 
+  -- Portrait (base64 data URL)
+  portrait TEXT NOT NULL DEFAULT '',
+
   -- Notes
   notes TEXT NOT NULL DEFAULT '',
 

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 import { evalFormula } from '../utils/formulaEval'
@@ -362,6 +362,139 @@ function FreeTagInput({ label, selected, onChange, readOnly, placeholder }) {
             placeholder={selected.length === 0 ? (placeholder || 'Type and press Enter…') : ''}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+function PortraitCropModal({ onClose, onCrop }) {
+  const [imgSrc, setImgSrc] = useState(null)
+  const [imgEl, setImgEl] = useState(null)
+  const containerRef = useRef(null)
+  const [renderedImg, setRenderedImg] = useState(null)
+  const [cropBox, setCropBox] = useState(null)
+  const dragRef = useRef(null)
+  const fileRef = useRef()
+
+  function handleImgLoad(e) {
+    const img = e.target
+    const cont = containerRef.current
+    if (!cont) return
+    const cw = cont.clientWidth, ch = cont.clientHeight
+    const nw = img.naturalWidth,  nh = img.naturalHeight
+    const scale = Math.min(cw / nw, ch / nh)
+    const rw = nw * scale, rh = nh * scale
+    const rx = (cw - rw) / 2, ry = (ch - rh) / 2
+    setRenderedImg({ x: rx, y: ry, w: rw, h: rh })
+    const size = Math.min(rw, rh) * 0.8
+    setCropBox({ x: rx + (rw - size) / 2, y: ry + (rh - size) / 2, size })
+  }
+
+  function startDrag(e, type) {
+    e.preventDefault(); e.stopPropagation()
+    dragRef.current = { type, startX: e.clientX, startY: e.clientY, startBox: { ...cropBox } }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function onMove(e) {
+    if (!dragRef.current || !renderedImg) return
+    const { type, startX, startY, startBox } = dragRef.current
+    const dx = e.clientX - startX, dy = e.clientY - startY
+    const { x: ix, y: iy, w: iw, h: ih } = renderedImg
+    if (type === 'move') {
+      setCropBox({
+        size: startBox.size,
+        x: Math.max(ix, Math.min(ix + iw - startBox.size, startBox.x + dx)),
+        y: Math.max(iy, Math.min(iy + ih - startBox.size, startBox.y + dy)),
+      })
+    } else {
+      let delta
+      if (type === 'se') delta = Math.max(dx, dy)
+      else if (type === 'sw') delta = Math.max(-dx, dy)
+      else if (type === 'ne') delta = Math.max(dx, -dy)
+      else delta = Math.max(-dx, -dy)
+      let newSize = Math.max(30, startBox.size + delta)
+      let bx = (type === 'sw' || type === 'nw') ? startBox.x + startBox.size - newSize : startBox.x
+      let by = (type === 'ne' || type === 'nw') ? startBox.y + startBox.size - newSize : startBox.y
+      bx = Math.max(ix, bx); by = Math.max(iy, by)
+      newSize = Math.min(newSize, ix + iw - bx, iy + ih - by)
+      setCropBox({ x: bx, y: by, size: newSize })
+    }
+  }
+
+  function onUp() {
+    dragRef.current = null
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+  }
+
+  function handleCrop() {
+    if (!imgEl || !cropBox || !renderedImg) return
+    const canvas = document.createElement('canvas')
+    canvas.width = 400; canvas.height = 400
+    const ctx = canvas.getContext('2d')
+    const scale = imgEl.naturalWidth / renderedImg.w
+    ctx.drawImage(imgEl,
+      (cropBox.x - renderedImg.x) * scale, (cropBox.y - renderedImg.y) * scale,
+      cropBox.size * scale, cropBox.size * scale,
+      0, 0, 400, 400)
+    onCrop(canvas.toDataURL('image/jpeg', 0.85))
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-stone-900 border border-stone-700 rounded-xl p-4 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+        <h3 className="text-stone-200 font-semibold mb-3">Character Portrait</h3>
+        {!imgSrc ? (
+          <div className="flex flex-col items-center gap-4 py-10 border-2 border-dashed border-stone-600 rounded-lg cursor-pointer hover:border-stone-500 transition-colors"
+            onClick={() => fileRef.current.click()}>
+            <CameraIcon className="w-10 h-10 text-stone-500" />
+            <p className="text-stone-400 text-sm">Click to choose an image</p>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden"
+              onChange={e => {
+                const file = e.target.files[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = ev => setImgSrc(ev.target.result)
+                reader.readAsDataURL(file)
+              }} />
+          </div>
+        ) : (
+          <>
+            <p className="text-stone-500 text-xs mb-2">Drag to reposition · Drag corners to resize</p>
+            <div ref={containerRef} className="relative select-none overflow-hidden rounded-lg bg-stone-950" style={{ height: 380 }}>
+              <img src={imgSrc} ref={setImgEl} onLoad={handleImgLoad}
+                className="absolute inset-0 w-full h-full object-contain" draggable={false} alt="crop preview" />
+              {cropBox && (
+                <>
+                  <div className="absolute inset-0 pointer-events-none" style={{
+                    background: 'rgba(0,0,0,0.6)',
+                    clipPath: `polygon(0% 0%,100% 0%,100% 100%,0% 100%,0% ${cropBox.y}px,${cropBox.x}px ${cropBox.y}px,${cropBox.x}px ${cropBox.y+cropBox.size}px,${cropBox.x+cropBox.size}px ${cropBox.y+cropBox.size}px,${cropBox.x+cropBox.size}px ${cropBox.y}px,0% ${cropBox.y}px)`
+                  }} />
+                  <div className="absolute border-2 border-white"
+                    style={{ left: cropBox.x, top: cropBox.y, width: cropBox.size, height: cropBox.size, cursor: 'move' }}
+                    onPointerDown={e => startDrag(e, 'move')}>
+                    <div className="absolute inset-0 pointer-events-none" style={{
+                      backgroundImage: 'linear-gradient(rgba(255,255,255,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.15) 1px,transparent 1px)',
+                      backgroundSize: '33.33% 33.33%'
+                    }} />
+                    {[['nw',{top:-5,left:-5},'nw-resize'],['ne',{top:-5,right:-5},'ne-resize'],
+                      ['sw',{bottom:-5,left:-5},'sw-resize'],['se',{bottom:-5,right:-5},'se-resize']
+                    ].map(([dir, pos, cur]) => (
+                      <div key={dir} className="absolute w-3 h-3 bg-white rounded-sm"
+                        style={{ ...pos, cursor: cur }} onPointerDown={e => startDrag(e, dir)} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+        <div className="flex gap-2 mt-3 justify-end">
+          <button type="button" onClick={onClose} className="btn btn-secondary">Cancel</button>
+          {imgSrc && <button type="button" onClick={handleCrop} className="btn btn-primary">Crop & Save</button>}
+        </div>
       </div>
     </div>
   )
@@ -1129,6 +1262,7 @@ export default function CharacterSheet() {
       speed_base: null, max_hp_base: null,
       unarmed_attack_modifier: '', unarmed_damage_roll: '',
       weapon_profs: [], armor_profs: [], tool_profs: [], languages: [],
+      portrait: '',
     }
   })
 
@@ -1149,6 +1283,9 @@ export default function CharacterSheet() {
   const abilityFocusedRef = useRef(null)
   const [expDisplay, setExpDisplay] = useState(null)
   const expFocusedRef = useRef(false)
+  const [showPortraitModal, setShowPortraitModal] = useState(false)
+  const [showPortraitView, setShowPortraitView] = useState(false)
+  const watchedPortrait = watch('portrait') ?? ''
   const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
   const [concentrationLostPrompt, setConcentrationLostPrompt] = useState(null)
   const autoSaveTimer = useRef(null)
@@ -1565,6 +1702,54 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           <button type="button" onClick={() => navigate('/characters')} className="btn btn-secondary">
             Back
           </button>
+        </div>
+      </div>
+
+      {/* Portrait — above Basic Information */}
+      {showPortraitModal && (
+        <PortraitCropModal
+          onClose={() => setShowPortraitModal(false)}
+          onCrop={dataUrl => { setValue('portrait', dataUrl, { shouldDirty: true }); setShowPortraitModal(false) }}
+        />
+      )}
+      {showPortraitView && watchedPortrait && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setShowPortraitView(false)}>
+          <img src={watchedPortrait} className="max-w-full max-h-full rounded-xl object-contain shadow-2xl" alt="portrait" />
+          <button type="button" className="absolute top-4 right-4 p-2 rounded-full bg-stone-800/80 text-stone-300 hover:text-white"
+            onClick={() => setShowPortraitView(false)}>
+            <XMarkIcon className="w-6 h-6" />
+          </button>
+        </div>
+      )}
+      <div className="mb-4 flex items-center gap-3">
+        <div className="relative group shrink-0">
+          <div
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-stone-800 border border-stone-700"
+            style={{ cursor: watchedPortrait ? 'zoom-in' : readOnly ? 'default' : 'pointer' }}
+            onClick={() => { if (watchedPortrait) setShowPortraitView(true); else if (!readOnly) setShowPortraitModal(true) }}>
+            {watchedPortrait ? (
+              <img src={watchedPortrait} className="w-full h-full object-cover" alt="portrait" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center text-stone-600 gap-1">
+                <CameraIcon className="w-7 h-7" />
+                {!readOnly && <span className="text-xs">Upload</span>}
+              </div>
+            )}
+          </div>
+          {!readOnly && watchedPortrait && (
+            <button type="button"
+              onClick={e => { e.stopPropagation(); setShowPortraitModal(true) }}
+              className="absolute -bottom-1 -right-1 p-1 bg-stone-800 border border-stone-600 rounded-lg text-stone-400 hover:text-stone-200 opacity-0 group-hover:opacity-100 transition-opacity">
+              <CameraIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div>
+          <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
+          <div className="text-sm text-stone-400 mt-0.5">
+            {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
+          </div>
         </div>
       </div>
 

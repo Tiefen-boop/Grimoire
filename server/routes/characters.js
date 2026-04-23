@@ -21,7 +21,8 @@ const CHARACTER_FIELDS = [
   'age','height','weight','eyes','skin','hair','appearance_notes',
   'passive_perception','conditions','notes','features_list','exhaustion','speed_base','max_hp_base',
   'unarmed_attack_modifier','unarmed_damage_roll',
-  'weapon_profs','armor_profs','tool_profs','languages'
+  'weapon_profs','armor_profs','tool_profs','languages',
+  'portrait'
 ]
 
 const JSON_FIELDS = new Set([
@@ -69,7 +70,7 @@ router.get('/', (req, res) => {
   if (req.user.role === 'admin') return res.json([])
   const db = getDb()
   const chars = db.prepare(
-    'SELECT id, owner_id, name, class, level, race, current_hp, max_hp, updated_at FROM characters WHERE owner_id = ? ORDER BY name'
+    'SELECT id, owner_id, name, class, level, race, current_hp, max_hp, portrait, updated_at FROM characters WHERE owner_id = ? ORDER BY name'
   ).all(req.user.id)
   res.json(chars)
 })

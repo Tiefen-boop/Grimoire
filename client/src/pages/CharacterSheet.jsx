@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 import { evalFormula } from '../utils/formulaEval'
@@ -42,6 +42,9 @@ const SKILLS = [
 ]
 
 const ALIGNMENTS = ['Lawful Good','Neutral Good','Chaotic Good','Lawful Neutral','True Neutral','Chaotic Neutral','Lawful Evil','Neutral Evil','Chaotic Evil']
+
+// XP_THRESHOLDS[level] = total XP needed to reach that level (index 0 unused)
+const XP_THRESHOLDS = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]
 const SPELL_LEVELS = [0,1,2,3,4,5,6,7,8,9]
 
 // Spell level color palette — index = spell level (0=cantrip … 9=9th)
@@ -364,10 +367,143 @@ function FreeTagInput({ label, selected, onChange, readOnly, placeholder }) {
   )
 }
 
-function Section({ title, children, defaultOpen = true }) {
+function PortraitCropModal({ onClose, onCrop }) {
+  const [imgSrc, setImgSrc] = useState(null)
+  const [imgEl, setImgEl] = useState(null)
+  const containerRef = useRef(null)
+  const [renderedImg, setRenderedImg] = useState(null)
+  const [cropBox, setCropBox] = useState(null)
+  const dragRef = useRef(null)
+  const fileRef = useRef()
+
+  function handleImgLoad(e) {
+    const img = e.target
+    const cont = containerRef.current
+    if (!cont) return
+    const cw = cont.clientWidth, ch = cont.clientHeight
+    const nw = img.naturalWidth,  nh = img.naturalHeight
+    const scale = Math.min(cw / nw, ch / nh)
+    const rw = nw * scale, rh = nh * scale
+    const rx = (cw - rw) / 2, ry = (ch - rh) / 2
+    setRenderedImg({ x: rx, y: ry, w: rw, h: rh })
+    const size = Math.min(rw, rh) * 0.8
+    setCropBox({ x: rx + (rw - size) / 2, y: ry + (rh - size) / 2, size })
+  }
+
+  function startDrag(e, type) {
+    e.preventDefault(); e.stopPropagation()
+    dragRef.current = { type, startX: e.clientX, startY: e.clientY, startBox: { ...cropBox } }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function onMove(e) {
+    if (!dragRef.current || !renderedImg) return
+    const { type, startX, startY, startBox } = dragRef.current
+    const dx = e.clientX - startX, dy = e.clientY - startY
+    const { x: ix, y: iy, w: iw, h: ih } = renderedImg
+    if (type === 'move') {
+      setCropBox({
+        size: startBox.size,
+        x: Math.max(ix, Math.min(ix + iw - startBox.size, startBox.x + dx)),
+        y: Math.max(iy, Math.min(iy + ih - startBox.size, startBox.y + dy)),
+      })
+    } else {
+      let delta
+      if (type === 'se') delta = Math.max(dx, dy)
+      else if (type === 'sw') delta = Math.max(-dx, dy)
+      else if (type === 'ne') delta = Math.max(dx, -dy)
+      else delta = Math.max(-dx, -dy)
+      let newSize = Math.max(30, startBox.size + delta)
+      let bx = (type === 'sw' || type === 'nw') ? startBox.x + startBox.size - newSize : startBox.x
+      let by = (type === 'ne' || type === 'nw') ? startBox.y + startBox.size - newSize : startBox.y
+      bx = Math.max(ix, bx); by = Math.max(iy, by)
+      newSize = Math.min(newSize, ix + iw - bx, iy + ih - by)
+      setCropBox({ x: bx, y: by, size: newSize })
+    }
+  }
+
+  function onUp() {
+    dragRef.current = null
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+  }
+
+  function handleCrop() {
+    if (!imgEl || !cropBox || !renderedImg) return
+    const canvas = document.createElement('canvas')
+    canvas.width = 400; canvas.height = 400
+    const ctx = canvas.getContext('2d')
+    const scale = imgEl.naturalWidth / renderedImg.w
+    ctx.drawImage(imgEl,
+      (cropBox.x - renderedImg.x) * scale, (cropBox.y - renderedImg.y) * scale,
+      cropBox.size * scale, cropBox.size * scale,
+      0, 0, 400, 400)
+    onCrop(canvas.toDataURL('image/jpeg', 0.85))
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-stone-900 border border-stone-700 rounded-xl p-4 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+        <h3 className="text-stone-200 font-semibold mb-3">Character Portrait</h3>
+        {!imgSrc ? (
+          <div className="flex flex-col items-center gap-4 py-10 border-2 border-dashed border-stone-600 rounded-lg cursor-pointer hover:border-stone-500 transition-colors"
+            onClick={() => fileRef.current.click()}>
+            <CameraIcon className="w-10 h-10 text-stone-500" />
+            <p className="text-stone-400 text-sm">Click to choose an image</p>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden"
+              onChange={e => {
+                const file = e.target.files[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = ev => setImgSrc(ev.target.result)
+                reader.readAsDataURL(file)
+              }} />
+          </div>
+        ) : (
+          <>
+            <p className="text-stone-500 text-xs mb-2">Drag to reposition · Drag corners to resize</p>
+            <div ref={containerRef} className="relative select-none overflow-hidden rounded-lg bg-stone-950" style={{ height: 380 }}>
+              <img src={imgSrc} ref={setImgEl} onLoad={handleImgLoad}
+                className="absolute inset-0 w-full h-full object-contain" draggable={false} alt="crop preview" />
+              {cropBox && (
+                <>
+                  <div className="absolute inset-0 pointer-events-none" style={{
+                    background: 'rgba(0,0,0,0.6)',
+                    clipPath: `polygon(0% 0%,100% 0%,100% 100%,0% 100%,0% ${cropBox.y}px,${cropBox.x}px ${cropBox.y}px,${cropBox.x}px ${cropBox.y+cropBox.size}px,${cropBox.x+cropBox.size}px ${cropBox.y+cropBox.size}px,${cropBox.x+cropBox.size}px ${cropBox.y}px,0% ${cropBox.y}px)`
+                  }} />
+                  <div className="absolute border-2 border-white"
+                    style={{ left: cropBox.x, top: cropBox.y, width: cropBox.size, height: cropBox.size, cursor: 'move' }}
+                    onPointerDown={e => startDrag(e, 'move')}>
+                    <div className="absolute inset-0 pointer-events-none" style={{
+                      backgroundImage: 'linear-gradient(rgba(255,255,255,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.15) 1px,transparent 1px)',
+                      backgroundSize: '33.33% 33.33%'
+                    }} />
+                    {[['nw',{top:-5,left:-5},'nw-resize'],['ne',{top:-5,right:-5},'ne-resize'],
+                      ['sw',{bottom:-5,left:-5},'sw-resize'],['se',{bottom:-5,right:-5},'se-resize']
+                    ].map(([dir, pos, cur]) => (
+                      <div key={dir} className="absolute w-3 h-3 bg-white rounded-sm"
+                        style={{ ...pos, cursor: cur }} onPointerDown={e => startDrag(e, dir)} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+        <div className="flex gap-2 mt-3 justify-end">
+          <button type="button" onClick={onClose} className="btn btn-secondary">Cancel</button>
+          {imgSrc && <button type="button" onClick={handleCrop} className="btn btn-primary">Crop & Save</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Section({ title, children, defaultOpen = true, extraClass = '' }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="card mb-4">
+    <div className={`card mb-4 ${extraClass}`}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -1126,6 +1262,7 @@ export default function CharacterSheet() {
       speed_base: null, max_hp_base: null,
       unarmed_attack_modifier: '', unarmed_damage_roll: '',
       weapon_profs: [], armor_profs: [], tool_profs: [], languages: [],
+      portrait: '',
     }
   })
 
@@ -1144,6 +1281,11 @@ export default function CharacterSheet() {
   const maxHpFocused  = useRef(false)
   const [abilityDisplay, setAbilityDisplay] = useState({})
   const abilityFocusedRef = useRef(null)
+  const [expDisplay, setExpDisplay] = useState(null)
+  const expFocusedRef = useRef(false)
+  const [showPortraitModal, setShowPortraitModal] = useState(false)
+  const [showPortraitView, setShowPortraitView] = useState(false)
+  const watchedPortrait = watch('portrait') ?? ''
   const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
   const [concentrationLostPrompt, setConcentrationLostPrompt] = useState(null)
   const autoSaveTimer = useRef(null)
@@ -1284,6 +1426,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   function confirmLevelUp() {
     const curr = parseInt(watch(`classes.${levelUpModal.index}.level`)) || 0
     setValue(`classes.${levelUpModal.index}.level`, curr + 1, { shouldDirty: true })
+    setValue('experience_points', 0, { shouldDirty: true })
     setLevelUpModal(null)
   }
 
@@ -1315,6 +1458,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchedToolProfs   = watch('tool_profs')   || []
   const watchedLanguages   = watch('languages')    || []
   const allClasses        = watch('classes') || []
+  const watchedXp         = watch('experience_points') ?? 0
+  const watchedInspiration = watch('inspiration') ?? 0
+  const _xpTotalLevel = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
+  const _xpCap = (_xpTotalLevel + 1) <= 20 ? XP_THRESHOLDS[_xpTotalLevel + 1] : null
+  const xpFull = !!(_xpCap && watchedXp >= _xpCap)
 
   const watchedMaxHp  = watch('max_hp')     ?? 0
   const watchedCurrHp = watch('current_hp') ?? 0
@@ -1526,6 +1674,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
+      <style>{`
+        @keyframes xp-shimmer {
+          0%, 100% { box-shadow: 0 0 6px 2px rgba(234,179,8,0.5), 0 0 14px 4px rgba(202,138,4,0.25); }
+          50%       { box-shadow: 0 0 14px 5px rgba(234,179,8,0.8), 0 0 28px 10px rgba(202,138,4,0.4); }
+        }
+        @keyframes magic-shimmer {
+          0%, 100% { box-shadow: 0 0 6px 2px rgba(167,139,250,0.5), 0 0 14px 4px rgba(139,92,246,0.25); }
+          50%       { box-shadow: 0 0 16px 6px rgba(167,139,250,0.8), 0 0 32px 12px rgba(139,92,246,0.4); }
+        }
+        .xp-full-active    { animation: xp-shimmer    1.8s ease-in-out infinite; }
+        .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
+      `}</style>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-stone-100">
@@ -1545,8 +1705,56 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </div>
       </div>
 
+      {/* Portrait — above Basic Information */}
+      {showPortraitModal && (
+        <PortraitCropModal
+          onClose={() => setShowPortraitModal(false)}
+          onCrop={dataUrl => { setValue('portrait', dataUrl, { shouldDirty: true }); setShowPortraitModal(false) }}
+        />
+      )}
+      {showPortraitView && watchedPortrait && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setShowPortraitView(false)}>
+          <img src={watchedPortrait} className="max-w-full max-h-full rounded-xl object-contain shadow-2xl" alt="portrait" />
+          <button type="button" className="absolute top-4 right-4 p-2 rounded-full bg-stone-800/80 text-stone-300 hover:text-white"
+            onClick={() => setShowPortraitView(false)}>
+            <XMarkIcon className="w-6 h-6" />
+          </button>
+        </div>
+      )}
+      <div className="mb-4 flex items-center gap-3">
+        <div className="relative group shrink-0">
+          <div
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-stone-800 border border-stone-700"
+            style={{ cursor: watchedPortrait ? 'zoom-in' : readOnly ? 'default' : 'pointer' }}
+            onClick={() => { if (watchedPortrait) setShowPortraitView(true); else if (!readOnly) setShowPortraitModal(true) }}>
+            {watchedPortrait ? (
+              <img src={watchedPortrait} className="w-full h-full object-cover" alt="portrait" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center text-stone-600 gap-1">
+                <CameraIcon className="w-7 h-7" />
+                {!readOnly && <span className="text-xs">Upload</span>}
+              </div>
+            )}
+          </div>
+          {!readOnly && watchedPortrait && (
+            <button type="button"
+              onClick={e => { e.stopPropagation(); setShowPortraitModal(true) }}
+              className="absolute -bottom-1 -right-1 p-1 bg-stone-800 border border-stone-600 rounded-lg text-stone-400 hover:text-stone-200 opacity-0 group-hover:opacity-100 transition-opacity">
+              <CameraIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div>
+          <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
+          <div className="text-sm text-stone-400 mt-0.5">
+            {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+      </div>
+
       {/* Basic Info */}
-      <Section title="Basic Information">
+      <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''}>
         {/* Row 1 on desktop: Name · Race · Background · Alignment
             Mobile: Name+Race on row 1, Background+Alignment on row 2 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -1577,7 +1785,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -1667,21 +1875,58 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
         {/* Secondary stats row */}
         <div className="grid grid-cols-3 gap-3 mt-4">
-          <div className="stat-box">
-            <div className="label text-xs text-center">Experience Points</div>
-            <input type="number" min={0} {...register('experience_points', { valueAsNumber: true })}
-              className="input text-center text-xl font-bold p-1 no-spinner" disabled={readOnly} />
-          </div>
+          {/* Experience Points with XP bar */}
+          {(() => {
+            const totalLevel = allClasses.reduce((sum, cls) => sum + (parseInt(cls.level) || 0), 0)
+            const nextLevel = totalLevel + 1
+            const xpCap = nextLevel <= 20 ? XP_THRESHOLDS[nextLevel] : null
+            const xpFill = xpCap ? Math.min(100, (watchedXp / xpCap) * 100) : 0
+            return (
+              <div className="stat-box overflow-hidden relative">
+                {xpCap && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-yellow-600/50 to-amber-400/35 transition-all duration-300 origin-left"
+                    style={{ transform: `scaleX(${xpFill / 100})` }} />
+                )}
+                <div className="relative label text-xs text-center">Experience{xpCap ? <span className="text-stone-500"> / {xpCap.toLocaleString()}</span> : ''}</div>
+                <input type="text" inputMode="numeric"
+                  value={expFocusedRef.current ? (expDisplay ?? '') : watchedXp}
+                  onFocus={() => { expFocusedRef.current = true; setExpDisplay(String(watchedXp)) }}
+                  onChange={e => setExpDisplay(e.target.value)}
+                  onBlur={() => {
+                    expFocusedRef.current = false
+                    const raw = (expDisplay ?? '').trim()
+                    const prev = watchedXp
+                    if (!raw) { setExpDisplay(null); return }
+                    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+                    let result = leadingOp ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`) : parseArithExpr(raw)
+                    if (result === null) result = prev
+                    const final = xpCap ? Math.min(xpCap, Math.max(0, Math.round(result))) : Math.max(0, Math.round(result))
+                    setValue('experience_points', final, { shouldDirty: true })
+                    setExpDisplay(null)
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                  className="relative no-spinner bg-transparent text-center text-xl font-bold w-full focus:outline-none py-0.5 text-stone-100"
+                  disabled={readOnly} />
+              </div>
+            )
+          })()}
           <div className="stat-box">
             <div className="label text-xs text-center">Proficiency Bonus</div>
             <div className="text-xl font-bold text-center text-stone-100 py-0.5">+{watchedProfBonus}</div>
             <input type="hidden" {...register('proficiency_bonus', { valueAsNumber: true })} />
           </div>
-          <div className="stat-box">
-            <div className="label text-xs text-center">Inspiration</div>
-            <input type="number" min={0} {...register('inspiration', { valueAsNumber: true })}
-              className="input text-center text-xl font-bold p-1 no-spinner" disabled={readOnly} />
-          </div>
+          {/* Inspiration toggle */}
+          <button type="button" disabled={readOnly}
+            onClick={() => setValue('inspiration', watchedInspiration ? 0 : 1, { shouldDirty: true })}
+            className={`stat-box flex items-center justify-center p-2 w-full transition-all duration-300 ${
+              watchedInspiration
+                ? 'bg-violet-900/30 border-violet-500'
+                : 'hover:bg-stone-700/40'
+            }`}>
+            <span className={`font-semibold text-sm ${watchedInspiration ? 'text-violet-300' : 'text-stone-500'}`}>
+              {watchedInspiration ? '✦ Inspired' : 'Inspire'}
+            </span>
+          </button>
         </div>
       </Section>
 

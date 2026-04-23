@@ -232,8 +232,9 @@ function checkArmorProficiency(item, armorProfs) {
   return armorProfs.includes(map[item.armor_category] || '')
 }
 
-function SubSection({ title, defaultOpen = true, children }) {
+function SubSection({ title, defaultOpen = true, children, bare = false }) {
   const [open, setOpen] = useState(defaultOpen)
+  if (bare) return <>{children}</>
   return (
     <div className="border border-stone-700 rounded-lg mb-2">
       <button type="button" onClick={() => setOpen(o => !o)}
@@ -500,19 +501,27 @@ function PortraitCropModal({ onClose, onCrop }) {
   )
 }
 
-function Section({ title, children, defaultOpen = true, extraClass = '' }) {
-  const [open, setOpen] = useState(defaultOpen)
+function Section({ title, children, defaultOpen = true, extraClass = '', locked = false, sectionKey, hidden = false }) {
+  const key = sectionKey || (typeof title === 'string' ? title : null)
+  const storageKey = key ? `grimoire_sec_${key}` : null
+  const [open, setOpen] = useState(() => {
+    if (storageKey) { try { const s = localStorage.getItem(storageKey); if (s !== null) return s === 'true' } catch {} }
+    return defaultOpen
+  })
+  function toggle() {
+    if (locked) return
+    const next = !open
+    setOpen(next)
+    if (storageKey) { try { localStorage.setItem(storageKey, String(next)) } catch {} }
+  }
   return (
-    <div className={`card mb-4 ${extraClass}`}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between section-title cursor-pointer"
-      >
+    <div className={`card mb-4 ${extraClass}${hidden ? ' hidden' : ''}`}>
+      <button type="button" onClick={toggle}
+        className={`w-full flex items-center justify-between section-title ${locked ? 'cursor-default' : 'cursor-pointer'}`}>
         {title}
-        <ChevronDownIcon className={`w-4 h-4 transition-transform ${open ? '' : '-rotate-90'}`} />
+        {!locked && <ChevronDownIcon className={`w-4 h-4 transition-transform ${open ? '' : '-rotate-90'}`} />}
       </button>
-      {open && <div>{children}</div>}
+      {(open || locked) && <div>{children}</div>}
     </div>
   )
 }
@@ -1286,6 +1295,36 @@ export default function CharacterSheet() {
   const [showPortraitModal, setShowPortraitModal] = useState(false)
   const [showPortraitView, setShowPortraitView] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
+  const TABS = ['main', 'inventory', 'combat', 'roleplay']
+  const TAB_LABELS = { main: 'Main', inventory: '🎒 Inventory', combat: '⚔️ Combat', roleplay: '📖 Roleplay' }
+  const [activeTab, setActiveTabState] = useState(() => {
+    try { const t = localStorage.getItem('grimoire_active_tab'); return TABS.includes(t) ? t : 'main' } catch { return 'main' }
+  })
+  const [tabKey, setTabKey] = useState(0)
+  const [slideDir, setSlideDir] = useState('left')
+  function setTab(t, dir) {
+    const curIdx = TABS.indexOf(activeTab)
+    const newIdx = TABS.indexOf(t)
+    const d = dir ?? (newIdx >= curIdx ? 'left' : 'right')
+    setSlideDir(d)
+    setTabKey(k => k + 1)
+    setActiveTabState(t)
+    try { localStorage.setItem('grimoire_active_tab', t) } catch {}
+  }
+  const touchStartX = useRef(null)
+  const touchStartY = useRef(null)
+  function onTouchStart(e) { touchStartX.current = e.touches[0].clientX; touchStartY.current = e.touches[0].clientY }
+  function onTouchEnd(e) {
+    if (touchStartX.current === null) return
+    const dx = e.changedTouches[0].clientX - touchStartX.current
+    const dy = e.changedTouches[0].clientY - touchStartY.current
+    touchStartX.current = null; touchStartY.current = null
+    if (Math.abs(dx) < 80) return
+    if (Math.abs(dx) < Math.abs(dy) * 2) return
+    const idx = TABS.indexOf(activeTab)
+    if (dx < 0 && idx < TABS.length - 1) setTab(TABS[idx + 1], 'left')
+    else if (dx > 0 && idx > 0) setTab(TABS[idx - 1], 'right')
+  }
   const [concentrationSavePrompt, setConcentrationSavePrompt] = useState(null)
   const [concentrationLostPrompt, setConcentrationLostPrompt] = useState(null)
   const autoSaveTimer = useRef(null)
@@ -1673,7 +1712,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchName = watch('name')
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
+    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <style>{`
         @keyframes xp-shimmer {
           0%, 100% { box-shadow: 0 0 6px 2px rgba(234,179,8,0.5), 0 0 14px 4px rgba(202,138,4,0.25); }
@@ -1685,6 +1724,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         }
         .xp-full-active    { animation: xp-shimmer    1.8s ease-in-out infinite; }
         .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
+        @media (max-width: 639px) {
+          @keyframes tab-wipe-left  { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+          @keyframes tab-wipe-right { from { transform: translateX(-40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+          .tab-wipe-left  { animation: tab-wipe-left  0.22s ease-out; }
+          .tab-wipe-right { animation: tab-wipe-right 0.22s ease-out; }
+        }
       `}</style>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
@@ -1705,6 +1750,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </div>
       </div>
 
+      {/* Tab bar */}
+      <div className="flex border-b border-stone-700 mb-4">
+        {TABS.map(t => (
+          <button key={t} type="button" onClick={() => setTab(t)}
+            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
+            }`}>
+            {TAB_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
+      {/* Animated tab content wrapper */}
+      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
+
       {/* Portrait — above Basic Information */}
       {showPortraitModal && (
         <PortraitCropModal
@@ -1722,16 +1782,24 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </button>
         </div>
       )}
-      <div className="mb-4 flex items-center gap-3">
-        <div className="relative group shrink-0">
+      <div className={`mb-4${activeTab !== 'main' && activeTab !== 'roleplay' ? ' hidden' : ''} ${activeTab === 'roleplay' ? 'flex flex-col sm:flex-row sm:items-center gap-3' : 'flex items-center gap-3'}`}>
+        {/* Name/class — on mobile roleplay comes first (order-1), on desktop stays second */}
+        <div className={activeTab === 'roleplay' ? 'order-1 sm:order-2' : ''}>
+          <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
+          <div className="text-sm text-stone-400 mt-0.5">
+            {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        {/* Portrait */}
+        <div className={`relative group shrink-0 ${activeTab === 'roleplay' ? 'order-2 sm:order-1' : ''}`}>
           <div
-            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-stone-800 border border-stone-700"
+            className={`rounded-xl overflow-hidden bg-stone-800 border border-stone-700 ${activeTab === 'roleplay' ? 'w-full aspect-square sm:w-24 sm:h-24 sm:aspect-auto' : 'w-20 h-20 sm:w-24 sm:h-24'}`}
             style={{ cursor: watchedPortrait ? 'zoom-in' : readOnly ? 'default' : 'pointer' }}
             onClick={() => { if (watchedPortrait) setShowPortraitView(true); else if (!readOnly) setShowPortraitModal(true) }}>
             {watchedPortrait ? (
               <img src={watchedPortrait} className="w-full h-full object-cover" alt="portrait" />
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-stone-600 gap-1">
+              <div className="w-full h-full flex flex-col items-center justify-center text-stone-600 gap-2">
                 <CameraIcon className="w-7 h-7" />
                 {!readOnly && <span className="text-xs">Upload</span>}
               </div>
@@ -1740,21 +1808,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           {!readOnly && watchedPortrait && (
             <button type="button"
               onClick={e => { e.stopPropagation(); setShowPortraitModal(true) }}
-              className="absolute -bottom-1 -right-1 p-1 bg-stone-800 border border-stone-600 rounded-lg text-stone-400 hover:text-stone-200 opacity-0 group-hover:opacity-100 transition-opacity">
+              className="absolute bottom-1 right-1 p-1 bg-stone-800 border border-stone-600 rounded-lg text-stone-400 hover:text-stone-200 opacity-0 group-hover:opacity-100 transition-opacity">
               <CameraIcon className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
-        <div>
-          <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
-          <div className="text-sm text-stone-400 mt-0.5">
-            {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
-          </div>
-        </div>
       </div>
 
       {/* Basic Info */}
-      <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''}>
+      <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''} hidden={activeTab !== 'main'}>
         {/* Row 1 on desktop: Name · Race · Background · Alignment
             Mobile: Name+Race on row 1, Background+Alignment on row 2 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -1831,40 +1893,38 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <span className="flex-1 text-stone-100 text-sm font-medium truncate min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+                      <span className="text-stone-100 text-sm font-medium whitespace-nowrap">
                         {cls.name || <span className="text-stone-500 italic">Unnamed class</span>}
                         {cls.subclass && <span className="text-stone-400 font-normal"> / {cls.subclass}</span>}
                       </span>
-                      {cls.is_spellcaster && cls.casting_ability && (
-                        <span className="flex items-center gap-0.5 text-xs text-yellow-400 shrink-0">
-                          <SparklesIcon className="w-3.5 h-3.5" />{ABILITY_SHORT[cls.casting_ability]}
-                        </span>
-                      )}
-                      {!readOnly && (
-                        <button type="button" onClick={() => handleLevelUp(i)}
-                          className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40">
-                          Level Up!
-                        </button>
-                      )}
-                      {cls.hit_die && (
-                        <span className="text-xs text-stone-500 shrink-0">{cls.hit_die}</span>
-                      )}
-                      {cls.level > 0 && (
-                        <span className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded shrink-0">Lv. {cls.level}</span>
-                      )}
-                      {!readOnly && (
-                        <>
-                          <button type="button" onClick={() => startEditClass(field.id)}
-                            className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
-                            <PencilIcon className="w-4 h-4" />
+                      <div className="flex items-center gap-1 ml-auto">
+                        {cls.is_spellcaster && cls.casting_ability && (
+                          <span className="flex items-center gap-0.5 text-xs text-yellow-400 shrink-0">
+                            <SparklesIcon className="w-3.5 h-3.5" />{ABILITY_SHORT[cls.casting_ability]}
+                          </span>
+                        )}
+                        {!readOnly && (
+                          <button type="button" onClick={() => handleLevelUp(i)}
+                            className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40">
+                            Level Up!
                           </button>
-                          <button type="button" onClick={() => handleRemoveClass(i)}
-                            className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
-                            <TrashIcon className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
+                        )}
+                        {cls.hit_die && <span className="text-xs text-stone-500 shrink-0">{cls.hit_die}</span>}
+                        {cls.level > 0 && <span className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded shrink-0">Lv. {cls.level}</span>}
+                        {!readOnly && (
+                          <>
+                            <button type="button" onClick={() => startEditClass(field.id)}
+                              className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
+                              <PencilIcon className="w-4 h-4" />
+                            </button>
+                            <button type="button" onClick={() => handleRemoveClass(i)}
+                              className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
+                              <TrashIcon className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1931,7 +1991,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Ability Scores & Derived */}
-      <Section title="Ability Scores">
+      <Section title={<span className="text-sky-300">🎲 Ability Scores</span>} sectionKey="Ability Scores" hidden={activeTab !== 'main'}>
         {/* Ability score blocks */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
           {ABILITIES.map((ability, i) => {
@@ -2045,7 +2105,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Combat */}
-      <Section title="Combat">
+      <Section title={<span className="text-red-300">⚔️ Combat</span>} sectionKey="Combat" locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
 
           {/* HP + Temp HP bars */}
@@ -2320,7 +2380,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Attacks */}
-      <Section title="Attacks & Spellcasting" defaultOpen={false}>
+      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
         {(() => {
           const allEquipment = watch('equipment') || []
           const weapons = allEquipment.map((item, i) => ({ item, i })).filter(({ item }) => item.type === 'weapon')
@@ -2515,9 +2575,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Features, Proficiencies & Languages */}
-      <Section title="Features, Proficiencies & Languages" defaultOpen={false}>
+      <Section
+        title={<span className="text-emerald-300">{activeTab === 'combat' ? '📜 Features' : activeTab === 'roleplay' ? '🌍 Languages' : '📜 Features, Proficiencies & Languages'}</span>}
+        sectionKey="Features, Proficiencies & Languages"
+        defaultOpen={false}
+        locked={activeTab !== 'main'}
+        hidden={activeTab === 'inventory'}>
 
-        <SubSection title="Features">
+        <div className={activeTab === 'roleplay' ? 'hidden' : ''}>
+        <SubSection title="Features" bare={activeTab === 'combat'}>
         <div className="space-y-1 mb-2">
           {featureFields.map((field, i) => {
             const isExpanded        = expandedFeatures.has(field.id)
@@ -2658,7 +2724,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </button>
         )}
         </SubSection>
+        </div>{/* end features visibility wrapper */}
 
+        <div className={activeTab !== 'main' ? 'hidden' : ''}>
         <SubSection title="Proficiencies" defaultOpen={false}>
           {/* Weapons */}
           <div className="mb-4">
@@ -2725,8 +2793,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             />
           </div>
         </SubSection>
+        </div>{/* end proficiencies visibility wrapper */}
 
-        <SubSection title="Languages" defaultOpen={false}>
+        <div className={activeTab === 'combat' ? 'hidden' : ''}>
+        <SubSection title="Languages" defaultOpen={false} bare={activeTab === 'roleplay'}>
           <FreeTagInput
             selected={watchedLanguages}
             onChange={next => setValue('languages', next, { shouldDirty: true })}
@@ -2734,11 +2804,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             placeholder="Type a language and press Enter…"
           />
         </SubSection>
+        </div>{/* end languages visibility wrapper */}
 
       </Section>
 
       {/* Equipment & Currency */}
-      <Section title="Equipment & Currency" defaultOpen={false}>
+      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'main' && activeTab !== 'inventory'}>
         <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly}
           onEditingChange={setEquipmentHasEditing}
           weaponProfs={watchedWeaponProfs}
@@ -2752,8 +2823,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         if (!cls?.is_spellcaster || !cls?.casting_ability) return null
         return (
           <Section key={field.id}
-            title={<span className="flex items-baseline gap-1.5">SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
-            defaultOpen={false}>
+            title={<span className="flex items-baseline gap-1.5 text-yellow-300">✨ SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
+            sectionKey={`Spellcasting-${field.id}`}
+            defaultOpen={false}
+            locked={activeTab === 'combat'}
+            hidden={activeTab !== 'main' && activeTab !== 'combat'}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
@@ -2770,7 +2844,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })}
 
       {/* Traits & Features */}
-      <Section title="Personality & Traits" defaultOpen={false}>
+      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { label: 'Personality Traits', name: 'personality_traits' },
@@ -2799,7 +2873,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Backstory & Appearance */}
-      <Section title="Backstory & Appearance" defaultOpen={false}>
+      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-3">
           {[
             { label: 'Age', name: 'age' },
@@ -2836,9 +2910,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Notes */}
-      <Section title="Notes" defaultOpen={false}>
+      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
         <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
+
+      </div>{/* end animated tab content wrapper */}
 
       {/* Delete class modal — step 1 */}
       <Modal open={!!deleteClassModal && deleteClassModal.step === 1}

@@ -1724,12 +1724,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         }
         .xp-full-active    { animation: xp-shimmer    1.8s ease-in-out infinite; }
         .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
-        @media (max-width: 639px) {
-          @keyframes tab-wipe-left  { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-          @keyframes tab-wipe-right { from { transform: translateX(-40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-          .tab-wipe-left  { animation: tab-wipe-left  0.22s ease-out; }
-          .tab-wipe-right { animation: tab-wipe-right 0.22s ease-out; }
-        }
+
       `}</style>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">

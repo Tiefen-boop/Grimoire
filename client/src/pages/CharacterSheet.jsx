@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 import { evalFormula } from '../utils/formulaEval'
@@ -1246,8 +1246,10 @@ function ConditionsBlock({ watch, readOnly, onToggle }) {
 export default function CharacterSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const isNew = !id
+  const campaignId = location.state?.campaignId ?? null
 
   const { register, control, handleSubmit, watch, reset, setValue, formState: { isDirty, isSubmitting } } = useForm({
     defaultValues: {
@@ -1282,6 +1284,7 @@ export default function CharacterSheet() {
   const [readOnly, setReadOnly] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [campaignChars, setCampaignChars] = useState([])
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
   const [currHpDisplay, setCurrHpDisplay] = useState(null)
@@ -1657,11 +1660,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         reset(data)
         savedValuesRef.current = JSON.stringify(data)
         setTempHpDisplayStr(data.temp_hp > 0 ? String(data.temp_hp) : '')
-        if (data.owner_id !== user.id) setReadOnly(true)
+        if (!data.can_edit) setReadOnly(true)
       })
       .catch(() => navigate('/characters'))
       .finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!campaignId) return
+    api.get(`/campaigns/${campaignId}`)
+      .then(r => setCampaignChars(r.data.characters ?? []))
+      .catch(() => {})
+  }, [campaignId])
 
   const getAbilityMod = useCallback((ability) => {
     const idx = ABILITIES.indexOf(ability)
@@ -1739,11 +1749,46 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
               {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create' : 'Save'}
             </button>
           )}
-          <button type="button" onClick={() => navigate('/characters')} className="btn btn-secondary">
+          <button type="button" onClick={() => navigate(campaignId ? `/campaigns/${campaignId}` : '/characters')} className="btn btn-secondary">
             Back
           </button>
         </div>
       </div>
+
+      {/* Campaign character strip */}
+      {campaignId && campaignChars.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-none">
+          {campaignChars.map(c => {
+            const isCurrent = String(c.id) === String(id)
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => navigate(`/characters/${c.id}`, { state: { campaignId } })}
+                className={`flex items-center gap-2 shrink-0 rounded-lg border px-2 py-1.5 transition-colors text-left ${
+                  isCurrent
+                    ? 'border-red-600 bg-stone-800 cursor-default'
+                    : 'border-stone-700 bg-stone-900 hover:border-stone-500 cursor-pointer'
+                }`}
+              >
+                <div className="w-8 h-8 rounded shrink-0 overflow-hidden bg-stone-800 border border-stone-700 flex items-center justify-center">
+                  {c.portrait
+                    ? <img src={c.portrait} className="w-full h-full object-cover" alt="" />
+                    : <UserCircleIcon className="w-5 h-5 text-stone-600" />}
+                </div>
+                <div className="min-w-0">
+                  <div className={`text-xs font-semibold truncate max-w-24 ${isCurrent ? 'text-red-300' : 'text-stone-200'}`}>
+                    {c.name || 'Unnamed'}
+                  </div>
+                  <div className="text-xs text-stone-500 truncate max-w-24">
+                    {[c.class, c.level ? `Lv${c.level}` : ''].filter(Boolean).join(' ')}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex border-b border-stone-700 mb-4">

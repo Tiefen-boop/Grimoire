@@ -93,7 +93,9 @@ router.get('/:id', (req, res) => {
     return res.status(403).json({ error: 'Forbidden' })
   }
 
-  res.json(parseJsonFields(char))
+  const parsed = parseJsonFields(char)
+  parsed.can_edit = isOwner || isDmOfCampaign
+  res.json(parsed)
 })
 
 // Create character (players only)

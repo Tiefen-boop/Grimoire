@@ -1702,6 +1702,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   async function onSubmit(data) {
     setError('')
+    // Keep legacy class/subclass/level in sync with the classes array for list display
+    if (data.classes?.length > 0) {
+      data.class    = data.classes[0].name     || ''
+      data.subclass = data.classes[0].subclass || ''
+      data.level    = data.classes.reduce((sum, c) => sum + (parseInt(c.level) || 0), 0)
+    }
     try {
       if (isNew) {
         const res = await api.post('/characters', data)

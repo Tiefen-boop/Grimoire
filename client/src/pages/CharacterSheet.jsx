@@ -1994,7 +1994,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     style={{ transform: `scaleX(${xpFill / 100})` }} />
                 )}
                 <div className="relative label text-xs text-center">Experience{xpCap ? <span className="text-stone-500"> / {xpCap.toLocaleString()}</span> : ''}</div>
-                <input type="text" inputMode="numeric"
+                <input type="text" inputMode="text"
                   value={expFocusedRef.current ? (expDisplay ?? '') : watchedXp}
                   onFocus={() => { expFocusedRef.current = true; setExpDisplay(String(watchedXp)) }}
                   onChange={e => setExpDisplay(e.target.value)}
@@ -2046,7 +2046,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
               <div key={ability} className={`stat-box border ${c.border} text-center`}>
                 <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${c.label}`}>{ABILITY_SHORT[ability]}</div>
                 <input
-                  type="text" inputMode="numeric"
+                  type="text" inputMode="text"
                   value={abilityFocusedRef.current === ability ? (abilityDisplay[ability] ?? '') : (watchedAbilities[i] ?? 10)}
                   onFocus={() => { abilityFocusedRef.current = ability; setAbilityDisplay(p => ({ ...p, [ability]: String(watchedAbilities[i] ?? 10) })) }}
                   onChange={e => setAbilityDisplay(p => ({ ...p, [ability]: e.target.value }))}
@@ -2164,7 +2164,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 style={{ width: `${redFillPct}%` }} />
               <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
                 <span className="text-red-200 font-semibold text-sm select-none">HP</span>
-                <input type="text" inputMode="numeric"
+                <input type="text" inputMode="text"
                   value={currHpFocused.current ? (currHpDisplay ?? '') : (watchedCurrHp ?? 0)}
                   onFocus={() => { currHpFocused.current = true; setCurrHpDisplay(String(watchedCurrHp ?? 0)) }}
                   onChange={e => setCurrHpDisplay(e.target.value)}
@@ -2200,7 +2200,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   className="no-spinner bg-transparent text-stone-100 font-bold text-lg text-right w-12 focus:outline-none font-sans"
                   disabled={readOnly} />
                 <span className="text-stone-400 font-bold text-lg select-none">/</span>
-                <input type="text" inputMode="numeric"
+                <input type="text" inputMode="text"
                   value={maxHpFocused.current ? (maxHpDisplay ?? '') : (watchedMaxHp ?? 0)}
                   onFocus={() => { maxHpFocused.current = true; setMaxHpDisplay(String(watchedMaxHp ?? 0)) }}
                   onChange={e => setMaxHpDisplay(e.target.value)}
@@ -2236,7 +2236,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 {tempHpDisplayStr !== '' && (
                   <span className="text-green-200 font-semibold text-xs select-none">Temp HP</span>
                 )}
-                <input type="text" inputMode="numeric"
+                <input type="text" inputMode="text"
                   value={tempHpDisplayStr}
                   placeholder={tempHpDisplayStr === '' ? 'Temp HP' : ''}
                   onChange={e => setTempHpDisplayStr(e.target.value)}

@@ -88,7 +88,7 @@ export default function CampaignView() {
   if (loading) return <div className="text-stone-400">Loading…</div>
   if (!campaign) return null
 
-  const isDm = campaign.is_dm
+  const isDm = !!campaign.is_dm
   const memberIds = new Set(campaign.members.map(m => m.id))
   const charIdsInCampaign = new Set(campaign.characters.map(c => c.id))
   const addableChars = myChars.filter(c => !charIdsInCampaign.has(c.id))
@@ -223,7 +223,7 @@ function CharacterCard({ char, isDm, currentUserId, campaignId, campaignMembers,
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-bold text-stone-100">{char.name || 'Unnamed'}</span>
-            {char.is_copy && (
+            {!!char.is_copy && (
               <span className="text-xs bg-yellow-900 text-yellow-300 px-1.5 py-0.5 rounded">Copy</span>
             )}
             {isDm && char.owner_username && (

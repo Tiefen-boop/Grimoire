@@ -22,7 +22,8 @@ const CHARACTER_FIELDS = [
   'passive_perception','conditions','notes','features_list','exhaustion','speed_base','max_hp_base',
   'unarmed_attack_modifier','unarmed_damage_roll',
   'weapon_profs','armor_profs','tool_profs','languages',
-  'portrait'
+  'portrait',
+  'armor_class_manual','initiative_manual'
 ]
 
 const JSON_FIELDS = new Set([

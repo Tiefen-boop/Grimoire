@@ -1380,7 +1380,7 @@ export default function CharacterSheet() {
       strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10,
       saving_throw_profs: [], skill_profs: [], skill_expertise: [],
       proficiency_bonus: 2, inspiration: 0,
-      armor_class: 10, initiative_bonus: 0, speed: 30,
+      armor_class: 10, armor_class_manual: false, initiative_bonus: 0, initiative_manual: false, speed: 30,
       max_hp: 0, current_hp: 0, temp_hp: 0,
       hit_dice: '', hit_dice_remaining: '',
       death_save_successes: 0, death_save_failures: 0,
@@ -1411,6 +1411,8 @@ export default function CharacterSheet() {
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
   const [currHpDisplay, setCurrHpDisplay] = useState(null)
   const [maxHpDisplay,  setMaxHpDisplay]  = useState(null)
+  const [acEdit,   setAcEdit]   = useState(null)
+  const [initEdit, setInitEdit] = useState(null)
   const currHpFocused = useRef(false)
   const maxHpFocused  = useRef(false)
   const [abilityDisplay, setAbilityDisplay] = useState({})
@@ -1608,6 +1610,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   }
 
   const watchedAbilities  = watch(ABILITIES)
+  const watchedAcManual   = !!watch('armor_class_manual')
+  const watchedInitManual = !!watch('initiative_manual')
+  const watchedStoredAC   = watch('armor_class') ?? 10
+  const watchedStoredInit = watch('initiative_bonus') ?? 0
   const watchedProfs      = watch('saving_throw_profs') || []
   const watchedSkillProfs = watch('skill_profs') || []
   const watchedSkillExp   = watch('skill_expertise') || []
@@ -2534,15 +2540,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10" style={{ paddingBottom: '20%' }}>
                   <span className="label text-xs text-center select-none">AC</span>
-                  <input type="number"
-                    {...register('armor_class', {
-                      valueAsNumber: true,
-                      onBlur: e => {
-                        if (e.target.value === '') setValue('armor_class', autoAC, { shouldDirty: true })
+                  <input type="text" inputMode="numeric"
+                    value={acEdit !== null ? acEdit : String(watchedAcManual ? watchedStoredAC : autoAC)}
+                    onFocus={() => setAcEdit(String(watchedAcManual ? watchedStoredAC : autoAC))}
+                    onChange={e => setAcEdit(e.target.value)}
+                    onBlur={() => {
+                      const raw = (acEdit ?? '').trim()
+                      if (raw === '') {
+                        setValue('armor_class_manual', false, { shouldDirty: true })
+                      } else {
+                        const n = parseInt(raw)
+                        if (!isNaN(n)) {
+                          setValue('armor_class', n, { shouldDirty: true })
+                          setValue('armor_class_manual', true, { shouldDirty: true })
+                        }
                       }
-                    })}
-                    placeholder={String(autoAC)}
-                    className="no-spinner bg-transparent text-stone-100 font-bold text-2xl text-center w-12 focus:outline-none font-sans placeholder:text-stone-500"
+                      setAcEdit(null)
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                    className="no-spinner bg-transparent text-stone-100 font-bold text-2xl text-center w-12 focus:outline-none font-sans"
                     disabled={readOnly} />
                 </div>
               </div>
@@ -2560,22 +2576,55 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             {/* Initiative */}
             <div className="flex-1 stat-box flex flex-col items-center justify-center">
               <div className="label text-xs text-center">Initiative</div>
-              <input type="number"
-                {...register('initiative_bonus', {
-                  valueAsNumber: true,
-                  onBlur: e => {
-                    if (e.target.value === '') setValue('initiative_bonus', autoInitBonus, { shouldDirty: true })
+              <input type="text" inputMode="numeric"
+                value={initEdit !== null ? initEdit : fmtMod(watchedInitManual ? watchedStoredInit : autoInitBonus)}
+                onFocus={() => setInitEdit(String(watchedInitManual ? watchedStoredInit : autoInitBonus))}
+                onChange={e => setInitEdit(e.target.value)}
+                onBlur={() => {
+                  const raw = (initEdit ?? '').trim()
+                  if (raw === '') {
+                    setValue('initiative_manual', false, { shouldDirty: true })
+                  } else {
+                    const n = parseInt(raw)
+                    if (!isNaN(n)) {
+                      setValue('initiative_bonus', n, { shouldDirty: true })
+                      setValue('initiative_manual', true, { shouldDirty: true })
+                    }
                   }
-                })}
-                placeholder={autoInitBonus >= 0 ? `+${autoInitBonus}` : String(autoInitBonus)}
-                className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1 placeholder:text-stone-500"
+                  setInitEdit(null)
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1"
                 disabled={readOnly} />
             </div>
 
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        {/* Saving Throws — combat tab only */}
+        {activeTab === 'combat' && (
+          <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 mb-4">
+            <div className="label text-xs mb-2">Saving Throws</div>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {ABILITIES.map(ability => {
+                const isProficient = watchedProfs.includes(ability)
+                const c = ABILITY_COLORS[ability]
+                return (
+                  <div key={ability} className={`rounded-lg p-2 text-center border ${isProficient ? `bg-stone-900 ${c.border}` : 'bg-stone-900/50 border-stone-700'}`}>
+                    <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>{ABILITY_SHORT[ability]}</div>
+                    <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</div>
+                    {isProficient && <div className={`w-2 h-2 rounded-full mx-auto mt-0.5 ${c.dot}`} />}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {(() => {
+          const showDeathSaves = activeTab !== 'combat' || watchedCurrHp <= 0
+          return (
+        <div className={`grid grid-cols-1 gap-3 mb-4 ${showDeathSaves ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
 
           {/* Hit Dice block */}
           <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-2">
@@ -2612,8 +2661,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             )}
           </div>
 
-          {/* Death Saving Throws block */}
-          <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
+          {/* Death Saving Throws block — combat tab only shows at 0 HP */}
+          {showDeathSaves && <div className="bg-stone-800 border border-stone-700 rounded-lg p-3 space-y-3">
             <div className="flex items-center justify-between">
               <div className="label text-xs">Death Saving Throws</div>
               {!readOnly && (() => {
@@ -2646,13 +2695,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 </div>
               </div>
             ))}
-          </div>
+          </div>}
 
           {/* Exhaustion block */}
           <ExhaustionBlock watch={watch} setValue={setValue} readOnly={readOnly}
             onExhaustionChange={lvl => { if (lvl >= 6) loseConcentrationDirect() }} />
 
         </div>
+          )
+        })()}
 
         {/* Conditions */}
         <ConditionsBlock

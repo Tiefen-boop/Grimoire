@@ -137,6 +137,13 @@ router.delete('/:id/members/:userId', (req, res) => {
   if (!campaign) return res.status(404).json({ error: 'Campaign not found' })
   if (campaign.dm_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
 
+  db.prepare(`
+    DELETE FROM campaign_characters
+    WHERE campaign_id = ? AND character_id IN (
+      SELECT id FROM characters WHERE owner_id = ?
+    )
+  `).run(req.params.id, req.params.userId)
+
   db.prepare('DELETE FROM campaign_members WHERE campaign_id = ? AND user_id = ?')
     .run(req.params.id, req.params.userId)
   res.json({ success: true })
@@ -194,6 +201,7 @@ router.delete('/:id/characters/:charId', (req, res) => {
 })
 
 // Assign character to player (DM only)
+// If the DM owns the character, fully transfers ownership to the target player.
 router.put('/:id/characters/:charId/assign', (req, res) => {
   const db = getDb()
   const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id)
@@ -205,7 +213,19 @@ router.put('/:id/characters/:charId/assign', (req, res) => {
   if (!cc) return res.status(404).json({ error: 'Character not in campaign' })
 
   const { user_id } = req.body
-  db.prepare('UPDATE campaign_characters SET assigned_to = ? WHERE id = ?').run(user_id || null, cc.id)
+  const targetUserId = user_id ? parseInt(user_id) : null
+
+  if (targetUserId) {
+    const char = db.prepare('SELECT owner_id FROM characters WHERE id = ?').get(req.params.charId)
+    if (char && char.owner_id === req.user.id) {
+      // Transfer full ownership to the player
+      db.prepare('UPDATE characters SET owner_id = ? WHERE id = ?').run(targetUserId, req.params.charId)
+      db.prepare('UPDATE campaign_characters SET assigned_to = NULL WHERE id = ?').run(cc.id)
+      return res.json({ success: true, transferred: true })
+    }
+  }
+
+  db.prepare('UPDATE campaign_characters SET assigned_to = ? WHERE id = ?').run(targetUserId, cc.id)
   res.json({ success: true })
 })
 
@@ -224,22 +244,8 @@ router.post('/:id/characters/:charId/copy', (req, res) => {
   ).get(req.params.id, req.params.charId)
   if (!cc) return res.status(404).json({ error: 'Character not in campaign' })
 
-  const COPY_FIELDS = [
-    'name','class','subclass','level','race','background','alignment','experience_points',
-    'strength','dexterity','constitution','intelligence','wisdom','charisma',
-    'saving_throw_profs','skill_profs','skill_expertise','proficiency_bonus','inspiration',
-    'armor_class','initiative_bonus','speed','max_hp','current_hp','temp_hp',
-    'hit_dice','hit_dice_remaining','death_save_successes','death_save_failures',
-    'attacks','equipment','copper','silver','electrum','gold','platinum',
-    'personality_traits','ideals','bonds','flaws','features_and_traits',
-    'spellcasting_ability','spell_save_dc','spell_attack_bonus','spell_slots','spells',
-    'other_proficiencies','character_backstory','allies_and_organizations',
-    'additional_features_and_traits','treasure',
-    'age','height','weight','eyes','skin','hair','appearance_notes',
-    'passive_perception','conditions','notes'
-  ]
-
-  const fields = COPY_FIELDS.filter(f => original[f] !== undefined)
+  const SKIP = new Set(['id', 'owner_id', 'created_at', 'updated_at'])
+  const fields = Object.keys(original).filter(f => !SKIP.has(f))
   const placeholders = fields.map(() => '?').join(', ')
   const values = fields.map(f => original[f])
 

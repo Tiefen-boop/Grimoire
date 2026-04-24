@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import { PlusIcon, TrashIcon, UserPlusIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
@@ -88,7 +88,7 @@ export default function CampaignView() {
   if (loading) return <div className="text-stone-400">Loading…</div>
   if (!campaign) return null
 
-  const isDm = campaign.is_dm
+  const isDm = !!campaign.is_dm
   const memberIds = new Set(campaign.members.map(m => m.id))
   const charIdsInCampaign = new Set(campaign.characters.map(c => c.id))
   const addableChars = myChars.filter(c => !charIdsInCampaign.has(c.id))
@@ -192,6 +192,7 @@ export default function CampaignView() {
                   char={c}
                   isDm={isDm}
                   currentUserId={user.id}
+                  campaignId={id}
                   campaignMembers={campaign.members}
                   assignValue={assignTarget[c.id] || ''}
                   onAssignChange={v => setAssignTarget(a => ({ ...a, [c.id]: v }))}
@@ -208,20 +209,23 @@ export default function CampaignView() {
   )
 }
 
-function CharacterCard({ char, isDm, currentUserId, campaignMembers, assignValue, onAssignChange, onAssign, onCopy, onRemove }) {
-  const isOwn = char.owner_id === currentUserId || char.assigned_to === currentUserId
+function CharacterCard({ char, isDm, currentUserId, campaignId, campaignMembers, assignValue, onAssignChange, onAssign, onCopy, onRemove }) {
+  const navigate = useNavigate()
+  const dmOwns = char.owner_id === currentUserId
+
+  function openSheet(e) {
+    navigate(`/characters/${char.id}`, { state: { campaignId } })
+  }
 
   return (
-    <div className="card">
+    <div className="card hover:border-stone-500 transition-colors cursor-pointer" onClick={openSheet}>
       <div className="flex items-start justify-between flex-wrap gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <Link to={`/characters/${char.id}`} className="font-bold text-stone-100 hover:text-red-300 transition-colors">
-              {char.name || 'Unnamed'}
-            </Link>
-            {char.is_copy ? (
+            <span className="font-bold text-stone-100">{char.name || 'Unnamed'}</span>
+            {!!char.is_copy && (
               <span className="text-xs bg-yellow-900 text-yellow-300 px-1.5 py-0.5 rounded">Copy</span>
-            ) : null}
+            )}
             {isDm && char.owner_username && (
               <span className="text-xs text-stone-500">Owner: {char.owner_username}</span>
             )}
@@ -238,29 +242,26 @@ function CharacterCard({ char, isDm, currentUserId, campaignMembers, assignValue
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1">
-          {isDm && (
+        <div className="flex flex-wrap gap-1" onClick={e => e.stopPropagation()}>
+          {isDm && dmOwns && (
             <>
-              {/* Assign */}
               <div className="flex gap-1">
                 <select
-                  className="input text-sm py-1 w-32"
+                  className="input text-sm py-1 w-36"
                   value={assignValue}
                   onChange={e => onAssignChange(e.target.value)}
                 >
-                  <option value="">Assign to…</option>
-                  <option value="0">Unassign</option>
+                  <option value="">Transfer to…</option>
                   {campaignMembers.map(m => <option key={m.id} value={m.id}>{m.username}</option>)}
                 </select>
-                <button onClick={onAssign} className="btn btn-secondary btn-sm" title="Assign">✓</button>
+                <button onClick={onAssign} className="btn btn-secondary btn-sm" title="Confirm">✓</button>
               </div>
-              {/* Copy (only for chars not owned by DM) */}
-              {char.owner_id !== currentUserId && (
-                <button onClick={onCopy} className="btn btn-secondary btn-sm" title="Copy character">
-                  <ArrowPathIcon className="w-4 h-4" />
-                </button>
-              )}
             </>
+          )}
+          {isDm && !dmOwns && (
+            <button onClick={onCopy} className="btn btn-secondary btn-sm" title="Copy character">
+              <ArrowPathIcon className="w-4 h-4" />
+            </button>
           )}
           <button onClick={onRemove} className="btn btn-danger btn-sm" title="Remove from campaign">
             <TrashIcon className="w-4 h-4" />

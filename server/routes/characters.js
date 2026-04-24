@@ -93,7 +93,9 @@ router.get('/:id', (req, res) => {
     return res.status(403).json({ error: 'Forbidden' })
   }
 
-  res.json(parseJsonFields(char))
+  const parsed = parseJsonFields(char)
+  parsed.can_edit = isOwner || isDmOfCampaign
+  res.json(parsed)
 })
 
 // Create character (players only)
@@ -149,6 +151,34 @@ router.put('/:id', (req, res) => {
 
   const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id)
   res.json(parseJsonFields(updated))
+})
+
+// Duplicate character (owner only)
+router.post('/:id/copy', (req, res) => {
+  if (req.user.role === 'admin') {
+    return res.status(403).json({ error: 'Admins cannot own characters' })
+  }
+  const db = getDb()
+  const char = db.prepare('SELECT * FROM characters WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id)
+  if (!char) return res.status(404).json({ error: 'Character not found or not yours' })
+
+  const data = { ...char }
+  delete data.id
+  delete data.owner_id
+  delete data.created_at
+  delete data.updated_at
+  data.name = `Copy of ${data.name || 'Unnamed'}`
+
+  const fields = CHARACTER_FIELDS.filter(f => f in data)
+  const placeholders = fields.map(() => '?').join(', ')
+  const values = fields.map(f => data[f])
+
+  const result = db.prepare(
+    `INSERT INTO characters (owner_id, ${fields.join(', ')}) VALUES (?, ${placeholders})`
+  ).run(req.user.id, ...values)
+
+  const created = db.prepare('SELECT * FROM characters WHERE id = ?').get(result.lastInsertRowid)
+  res.status(201).json(parseJsonFields(created))
 })
 
 // Delete character (owner only; admin cannot delete)

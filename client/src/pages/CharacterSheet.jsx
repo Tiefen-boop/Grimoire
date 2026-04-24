@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 import { evalFormula } from '../utils/formulaEval'
@@ -1243,6 +1243,120 @@ function ConditionsBlock({ watch, readOnly, onToggle }) {
   )
 }
 
+function ShortRestModal({ currHp, maxHp, remainingDice, totalDiceStr, conMod, onRollDie, onSpendDie, onSetHp, onClose }) {
+  const [mode, setMode] = useState('auto')
+  const [lastRoll, setLastRoll] = useState(null)
+  const [hpInput, setHpInput] = useState(null)
+
+  const totalDice = parseHitDice(totalDiceStr).sort((a, b) => b.size - a.size)
+  const remainingBySize = {}
+  for (const d of remainingDice) remainingBySize[d.size] = d.count
+  const hpPct = maxHp > 0 ? Math.min(100, Math.round(currHp / maxHp * 100)) : 0
+  const atFull = currHp >= maxHp
+
+  function handleDieClick(size) {
+    if (atFull || (remainingBySize[size] || 0) <= 0) return
+    if (mode === 'auto') {
+      const result = onRollDie(size)
+      setLastRoll({ size, ...result })
+    } else {
+      onSpendDie(size)
+      setLastRoll(null)
+    }
+  }
+
+  function handleHpBlur() {
+    if (hpInput === null) return
+    const raw = hpInput.trim()
+    const prev = currHp
+    const leadingOp = raw.match(/^([+\-*/])(.+)$/)
+    let result = leadingOp
+      ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`)
+      : parseArithExpr(raw)
+    if (result === null) result = prev
+    onSetHp(Math.max(0, Math.min(maxHp, Math.round(result))))
+    setHpInput(null)
+  }
+
+  const conStr = conMod >= 0 ? `+${conMod}` : String(conMod)
+
+  return (
+    <Modal open={true} title="Short Rest" onCancel={onClose} cancelLabel="Done">
+      <div className="space-y-4">
+
+        {/* HP bar — same style as character sheet */}
+        <div className="relative h-12 rounded-lg overflow-hidden bg-stone-900">
+          <div className="absolute inset-y-0 left-0 bg-red-950 rounded-lg" style={{ width: '100%' }} />
+          <div className="absolute inset-y-0 left-0 bg-red-700 transition-all duration-300 rounded-lg" style={{ width: `${hpPct}%` }} />
+          <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
+            <span className="text-red-200 font-semibold text-sm select-none">HP</span>
+            {mode === 'manual' ? (
+              <input type="text" inputMode="text"
+                value={hpInput !== null ? hpInput : String(currHp)}
+                onFocus={() => setHpInput(String(currHp))}
+                onChange={e => setHpInput(e.target.value)}
+                onBlur={handleHpBlur}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                className="bg-transparent text-stone-100 font-bold text-lg text-right w-12 focus:outline-none font-sans" />
+            ) : (
+              <span className="text-stone-100 font-bold text-lg w-12 text-right tabular-nums">{currHp}</span>
+            )}
+            <span className="text-stone-400 font-bold text-lg select-none">/</span>
+            <span className="text-stone-100 font-bold text-lg tabular-nums">{maxHp}</span>
+          </div>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="flex rounded-lg overflow-hidden border border-stone-600 text-sm">
+          {[['auto', 'Roll for me'], ['manual', 'I roll myself']].map(([m, label]) => (
+            <button key={m} type="button"
+              onClick={() => { setMode(m); setLastRoll(null) }}
+              className={`flex-1 py-1.5 px-3 transition-colors ${mode === m ? 'bg-stone-600 text-stone-100' : 'text-stone-400 hover:text-stone-300'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Hit dice */}
+        <div>
+          <p className="text-sm text-stone-400 mb-2">
+            Spend Hit Dice
+            <span className="text-stone-500 ml-1">(roll {conStr})</span>
+          </p>
+          {totalDice.length === 0
+            ? <p className="text-stone-500 text-sm italic">No hit dice configured.</p>
+            : (
+              <div className="flex flex-wrap gap-2">
+                {totalDice.map(d => {
+                  const rem = remainingBySize[d.size] || 0
+                  return (
+                    <button key={d.size} type="button"
+                      onClick={() => handleDieClick(d.size)}
+                      disabled={rem <= 0 || atFull}
+                      className="btn btn-secondary flex flex-col items-center gap-0.5 px-5 disabled:opacity-40">
+                      <span className="font-bold text-lg leading-none">d{d.size}</span>
+                      <span className="text-xs text-stone-400">{rem} left</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          }
+          {atFull && <p className="text-green-400 text-xs mt-2">HP is already full.</p>}
+          {lastRoll && mode === 'auto' && (
+            <p className="text-sm text-stone-300 mt-2">
+              Rolled d{lastRoll.size}: <span className="text-amber-300 font-semibold">{lastRoll.roll}</span>
+              {conMod !== 0 && <span className="text-stone-400"> {conStr}</span>}
+              {' = '}<span className="text-green-400 font-semibold">+{lastRoll.gain} HP</span>
+            </p>
+          )}
+        </div>
+
+      </div>
+    </Modal>
+  )
+}
+
 export default function CharacterSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -1297,6 +1411,8 @@ export default function CharacterSheet() {
   const expFocusedRef = useRef(false)
   const [showPortraitModal, setShowPortraitModal] = useState(false)
   const [showPortraitView, setShowPortraitView] = useState(false)
+  const [showShortRestModal, setShowShortRestModal] = useState(false)
+  const [showLongRestDeadModal, setShowLongRestDeadModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
   const TABS = ['main', 'inventory', 'combat', 'roleplay']
   const TAB_LABELS = { main: 'Main', inventory: '🎒 Inventory', combat: '⚔️ Combat', roleplay: '📖 Roleplay' }
@@ -1548,6 +1664,95 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   function useHitDieOfSize(size) {
     const updated = remainingDice.map(d => d.size === size ? { ...d, count: d.count - 1 } : d).filter(d => d.count > 0)
     setValue('hit_dice_remaining', updated.length ? stringifyHitDice(updated) : '0', { shouldDirty: true })
+  }
+
+  function doShortRest() {
+    // Restore short-rest charges immediately
+    const features = watch('features_list') || []
+    features.forEach((feat, i) => {
+      if (feat.has_charges && feat.charges_recharge === 'short')
+        setValue(`features_list.${i}.charges_current`, parseInt(feat.charges_max) || 0, { shouldDirty: true })
+    })
+    const equipment = watch('equipment') || []
+    equipment.forEach((item, i) => {
+      if (item.has_charges && item.charges_recharge === 'short')
+        setValue(`equipment.${i}.charges_current`, parseInt(item.charges_max) || 0, { shouldDirty: true })
+    })
+    setShowShortRestModal(true)
+  }
+
+  function rollDieShortRest(size) {
+    const roll = Math.floor(Math.random() * size) + 1
+    const conMod = Math.floor(((watchedAbilities[2] ?? 10) - 10) / 2)
+    const gain = Math.max(1, roll + conMod)
+    setValue('current_hp', Math.min(watchedMaxHp, watchedCurrHp + gain), { shouldDirty: true })
+    const updated = remainingDice.map(d => d.size === size ? { ...d, count: d.count - 1 } : d).filter(d => d.count > 0)
+    setValue('hit_dice_remaining', updated.length ? stringifyHitDice(updated) : '0', { shouldDirty: true })
+    return { roll, gain }
+  }
+
+  function spendDieShortRest(size) {
+    const updated = remainingDice.map(d => d.size === size ? { ...d, count: d.count - 1 } : d).filter(d => d.count > 0)
+    setValue('hit_dice_remaining', updated.length ? stringifyHitDice(updated) : '0', { shouldDirty: true })
+  }
+
+  function setHpFromShortRest(newHp) {
+    setValue('current_hp', newHp, { shouldDirty: true })
+  }
+
+  function doLongRest() {
+    if ((watchedCurrHp ?? 0) < 1) { setShowLongRestDeadModal(true); return }
+
+    setValue('current_hp', watchedMaxHp, { shouldDirty: true })
+    setValue('temp_hp', 0, { shouldDirty: true })
+
+    const features = watch('features_list') || []
+    features.forEach((feat, i) => {
+      if (feat.has_charges && (feat.charges_recharge === 'short' || feat.charges_recharge === 'long'))
+        setValue(`features_list.${i}.charges_current`, parseInt(feat.charges_max) || 0, { shouldDirty: true })
+    })
+    const equipment = watch('equipment') || []
+    equipment.forEach((item, i) => {
+      if (item.has_charges && (item.charges_recharge === 'short' || item.charges_recharge === 'long'))
+        setValue(`equipment.${i}.charges_current`, parseInt(item.charges_max) || 0, { shouldDirty: true })
+    })
+
+    allClasses.forEach((cls, ci) => {
+      Object.keys(cls.spell_slots || {}).forEach(level => {
+        const max = cls.spell_slots[level]?.max || 0
+        if (max > 0) setValue(`classes.${ci}.spell_slots.${level}.left`, max, { shouldDirty: true })
+      })
+    })
+
+    const exhaustion = watch('exhaustion') ?? 0
+    if (exhaustion > 0) setValue('exhaustion', exhaustion - 1, { shouldDirty: true })
+
+    // Restore hit dice: half of total (min 1), distributed by type ratio, remainder to highest die first
+    const totalDice = parseHitDice(computedHitDice)
+    if (totalDice.length > 0) {
+      const totalCount = totalDice.reduce((s, d) => s + d.count, 0)
+      const toRestore = Math.max(1, Math.floor(totalCount / 2))
+      const restoreBySize = {}
+      let distributed = 0
+      for (const d of totalDice) {
+        const share = Math.floor((d.count / totalCount) * toRestore)
+        restoreBySize[d.size] = share
+        distributed += share
+      }
+      let leftover = toRestore - distributed
+      for (const d of [...totalDice].sort((a, b) => b.size - a.size)) {
+        if (leftover <= 0) break
+        restoreBySize[d.size] = (restoreBySize[d.size] || 0) + 1
+        leftover--
+      }
+      const remMap = {}
+      for (const d of remainingDice) remMap[d.size] = d.count
+      const newRem = totalDice.map(d => ({
+        size: d.size,
+        count: Math.min(d.count, (remMap[d.size] || 0) + (restoreBySize[d.size] || 0))
+      })).filter(d => d.count > 0)
+      setValue('hit_dice_remaining', newRem.length ? stringifyHitDice(newRem) : '0', { shouldDirty: true })
+    }
   }
 
   // Normalize trailing/leading zeros in any number input across the sheet
@@ -1859,6 +2064,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </button>
           )}
         </div>
+        {activeTab === 'main' && !readOnly && (
+          <div className="flex flex-col gap-1.5">
+            <button type="button" onClick={doShortRest}
+              className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
+              <ClockIcon className="w-4 h-4 shrink-0" /> Short Rest
+            </button>
+            <button type="button" onClick={doLongRest}
+              className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
+              <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Basic Info */}
@@ -3052,6 +3269,24 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         onCancel={() => setConcentratePending(null)}
         confirmLabel="Switch">
         Already concentrating on <strong>{concentratingInfo?.name}</strong><br />Are you sure?
+      </Modal>
+
+      {showShortRestModal && (
+        <ShortRestModal
+          currHp={watchedCurrHp}
+          maxHp={watchedMaxHp}
+          remainingDice={remainingDice}
+          totalDiceStr={computedHitDice}
+          conMod={Math.floor(((watchedAbilities[2] ?? 10) - 10) / 2)}
+          onRollDie={rollDieShortRest}
+          onSpendDie={spendDieShortRest}
+          onSetHp={setHpFromShortRest}
+          onClose={() => setShowShortRestModal(false)}
+        />
+      )}
+      <Modal open={showLongRestDeadModal} title="Cannot Rest"
+        onCancel={() => setShowLongRestDeadModal(false)} cancelLabel="OK">
+        A character needs at least 1 HP to benefit from a long rest.
       </Modal>
 
       {/* Save button at bottom too */}

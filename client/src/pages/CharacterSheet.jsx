@@ -1678,6 +1678,14 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       if (item.has_charges && item.charges_recharge === 'short')
         setValue(`equipment.${i}.charges_current`, parseInt(item.charges_max) || 0, { shouldDirty: true })
     })
+    // Restore spell slots for short-rest spellcasting classes (e.g. Warlock)
+    allClasses.forEach((cls, ci) => {
+      if (!cls.is_spellcaster || cls.slot_recovery !== 'short') return
+      Object.keys(cls.spell_slots || {}).forEach(level => {
+        const max = cls.spell_slots[level]?.max || 0
+        if (max > 0) setValue(`classes.${ci}.spell_slots.${level}.left`, max, { shouldDirty: true })
+      })
+    })
     setShowShortRestModal(true)
   }
 
@@ -1718,6 +1726,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     })
 
     allClasses.forEach((cls, ci) => {
+      if (!cls.is_spellcaster) return
       Object.keys(cls.spell_slots || {}).forEach(level => {
         const max = cls.spell_slots[level]?.max || 0
         if (max > 0) setValue(`classes.${ci}.spell_slots.${level}.left`, max, { shouldDirty: true })
@@ -2110,7 +2119,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -2148,10 +2157,16 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                           Spellcaster
                         </label>
                         {cls.is_spellcaster && (
-                          <select {...register(`classes.${i}.casting_ability`)} className="input w-40">
-                            <option value="">— casting ability —</option>
-                            {ABILITIES.map(a => <option key={a} value={a}>{ABILITY_SHORT[a]} — {a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
-                          </select>
+                          <>
+                            <select {...register(`classes.${i}.casting_ability`)} className="input w-40">
+                              <option value="">— casting ability —</option>
+                              {ABILITIES.map(a => <option key={a} value={a}>{ABILITY_SHORT[a]} — {a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
+                            </select>
+                            <select {...register(`classes.${i}.slot_recovery`)} className="input w-36">
+                              <option value="long">Long rest slots</option>
+                              <option value="short">Short rest slots</option>
+                            </select>
+                          </>
                         )}
                       </div>
                     </div>
@@ -2165,6 +2180,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         {cls.is_spellcaster && cls.casting_ability && (
                           <span className="flex items-center gap-0.5 text-xs text-yellow-400 shrink-0">
                             <SparklesIcon className="w-3.5 h-3.5" />{ABILITY_SHORT[cls.casting_ability]}
+                            <span className={`ml-0.5 text-xs font-bold ${cls.slot_recovery === 'short' ? 'text-sky-400' : 'text-amber-500'}`}
+                              title={cls.slot_recovery === 'short' ? 'Short rest recovery' : 'Long rest recovery'}>
+                              {cls.slot_recovery === 'short' ? 'S' : 'L'}
+                            </span>
                           </span>
                         )}
                         {!readOnly && (

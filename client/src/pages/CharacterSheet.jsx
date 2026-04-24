@@ -575,6 +575,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
   })
   const [expandedLevels, setExpandedLevels] = useState(() => new Set(SPELL_LEVELS))
   const [expandedSpells, setExpandedSpells] = useState(new Set())
+  const [noSlotsModal,   setNoSlotsModal]   = useState(null)
   const [filterStates,   setFilterStates]   = useState(() => {
     try { const s = localStorage.getItem(`grimoire_atk_filters_${classIndex}`); return s ? JSON.parse(s) : {} } catch { return {} }
   })
@@ -600,6 +601,12 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
   const allFilters  = [...ATTACKS_SPELL_FILTERS_GENERAL, ...SPELL_FILTERS_SCHOOLS]
   const showFilters = allFilters.filter(f => filterStates[f.key] === 1)
   const hideFilters = allFilters.filter(f => filterStates[f.key] === 2)
+
+  function handleUseSlot(lvl) {
+    const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
+    if (left <= 0) { setNoSlotsModal({ lvl }); return }
+    setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left - 1, { shouldDirty: true })
+  }
 
   function spellVisible(sp, lvl) {
     if (hideFilters.some(f => f.accepts(sp, lvl))) return false
@@ -699,10 +706,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                           {parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.max`))  || 0}
                         </span>
                         <button type="button"
-                          onClick={() => {
-                            const left = parseInt(watch(`classes.${classIndex}.spell_slots.${lvl}.left`)) || 0
-                            if (left > 0) setValue(`classes.${classIndex}.spell_slots.${lvl}.left`, left - 1, { shouldDirty: true })
-                          }}
+                          onClick={() => handleUseSlot(lvl)}
                           className={`px-1.5 py-0.5 rounded border border-stone-600 ${c.text} opacity-70 hover:opacity-100 hover:border-stone-500 transition-opacity`}>
                           Use
                         </button>
@@ -787,6 +791,10 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
           </div>
         </>
       )}
+      <Modal open={!!noSlotsModal} title="No slots remaining"
+        onCancel={() => setNoSlotsModal(null)}>
+        No {noSlotsModal ? SPELL_LEVEL_COLORS[noSlotsModal.lvl].label.toLowerCase() : ''} slots remaining.
+      </Modal>
     </div>
   )
 }
@@ -1457,7 +1465,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
   const pendingNewFeature = useRef(false)
-  const [useFeatureModal,   setUseFeatureModal]   = useState(null) // { index, name }
   const [outOfChargesModal, setOutOfChargesModal] = useState(null) // { name }
 
   const [editingClasses,  setEditingClasses]  = useState(new Set())
@@ -1553,13 +1560,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     const curr = parseInt(watch(`features_list.${i}.charges_current`)) || 0
     const name = watch(`features_list.${i}.name`) || 'this feature'
     if (curr <= 0) { setOutOfChargesModal({ name }); return }
-    setUseFeatureModal({ index: i, name })
-  }
-  function confirmUseFeature() {
-    const { index } = useFeatureModal
-    const curr = parseInt(watch(`features_list.${index}.charges_current`)) || 0
-    setValue(`features_list.${index}.charges_current`, Math.max(0, curr - 1), { shouldDirty: true })
-    setUseFeatureModal(null)
+    setValue(`features_list.${i}.charges_current`, Math.max(0, curr - 1), { shouldDirty: true })
   }
 
   function startEditClass(fieldId) { setEditingClasses(prev => new Set([...prev, fieldId])) }
@@ -3234,10 +3235,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Modal>
 
       {/* Feature modals */}
-      <Modal open={!!useFeatureModal} title="Use feature?"
-        onConfirm={confirmUseFeature} onCancel={() => setUseFeatureModal(null)} confirmLabel="Use">
-        Use <strong>{useFeatureModal?.name}</strong>? This will spend 1 charge.
-      </Modal>
       <Modal open={!!outOfChargesModal} title="No charges remaining" onCancel={() => setOutOfChargesModal(null)}>
         <strong>{outOfChargesModal?.name}</strong> has no charges remaining.
       </Modal>

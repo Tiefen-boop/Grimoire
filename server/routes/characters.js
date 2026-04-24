@@ -11,7 +11,7 @@ const CHARACTER_FIELDS = [
   'strength','dexterity','constitution','intelligence','wisdom','charisma',
   'saving_throw_profs','skill_profs','skill_expertise',
   'proficiency_bonus','inspiration',
-  'armor_class','initiative_bonus','speed','max_hp','current_hp','temp_hp',
+  'armor_class','armor_class_manual','initiative_bonus','initiative_manual','speed','size','max_hp','current_hp','temp_hp',
   'hit_dice','hit_dice_remaining','death_save_successes','death_save_failures',
   'attacks','equipment','copper','silver','electrum','gold','platinum',
   'personality_traits','ideals','bonds','flaws','features_and_traits',
@@ -22,8 +22,7 @@ const CHARACTER_FIELDS = [
   'passive_perception','conditions','notes','features_list','exhaustion','speed_base','max_hp_base',
   'unarmed_attack_modifier','unarmed_damage_roll',
   'weapon_profs','armor_profs','tool_profs','languages',
-  'portrait',
-  'armor_class_manual','initiative_manual'
+  'portrait'
 ]
 
 const JSON_FIELDS = new Set([

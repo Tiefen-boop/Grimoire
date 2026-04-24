@@ -25,6 +25,7 @@ function getDb() {
       "ALTER TABLE characters ADD COLUMN portrait TEXT NOT NULL DEFAULT ''",
       "ALTER TABLE characters ADD COLUMN armor_class_manual INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE characters ADD COLUMN initiative_manual INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE characters ADD COLUMN size TEXT NOT NULL DEFAULT 'Medium'",
     ]
     for (const sql of migrations) {
       try { db.exec(sql) } catch { /* column already exists */ }

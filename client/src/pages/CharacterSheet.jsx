@@ -42,6 +42,7 @@ const SKILLS = [
 ]
 
 const ALIGNMENTS = ['Lawful Good','Neutral Good','Chaotic Good','Lawful Neutral','True Neutral','Chaotic Neutral','Lawful Evil','Neutral Evil','Chaotic Evil']
+const SIZES = ['Tiny','Small','Medium','Large','Huge','Gargantuan']
 
 // XP_THRESHOLDS[level] = total XP needed to reach that level (index 0 unused)
 const XP_THRESHOLDS = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]
@@ -1380,7 +1381,7 @@ export default function CharacterSheet() {
       strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10,
       saving_throw_profs: [], skill_profs: [], skill_expertise: [],
       proficiency_bonus: 2, inspiration: 0,
-      armor_class: 10, armor_class_manual: false, initiative_bonus: 0, initiative_manual: false, speed: 30,
+      armor_class: 10, armor_class_manual: false, initiative_bonus: 0, initiative_manual: false, speed: 30, size: 'Medium',
       max_hp: 0, current_hp: 0, temp_hp: 0,
       hit_dice: '', hit_dice_remaining: '',
       death_save_successes: 0, death_save_failures: 0,
@@ -1423,6 +1424,7 @@ export default function CharacterSheet() {
   const [showPortraitView, setShowPortraitView] = useState(false)
   const [showShortRestModal, setShowShortRestModal] = useState(false)
   const [showLongRestDeadModal, setShowLongRestDeadModal] = useState(false)
+  const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
   const TABS = ['main', 'inventory', 'combat', 'roleplay']
   const TAB_LABELS = { main: 'Main', inventory: '🎒 Inventory', combat: '⚔️ Combat', roleplay: '📖 Roleplay' }
@@ -2598,6 +2600,14 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 disabled={readOnly} />
             </div>
 
+            {/* Size */}
+            <button type="button"
+              onClick={() => !readOnly && setShowSizeModal(true)}
+              className="flex-1 stat-box flex flex-col items-center justify-center hover:border-stone-500 transition-colors cursor-pointer">
+              <div className="label text-xs text-center">Size</div>
+              <div className="text-stone-100 font-bold text-sm mt-1 leading-tight text-center">{watch('size') || 'Medium'}</div>
+            </button>
+
           </div>
         </div>
 
@@ -3354,6 +3364,22 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <Modal open={showLongRestDeadModal} title="Cannot Rest"
         onCancel={() => setShowLongRestDeadModal(false)} cancelLabel="OK">
         A character needs at least 1 HP to benefit from a long rest.
+      </Modal>
+
+      {/* Size picker */}
+      <Modal open={showSizeModal} title="Character Size" onCancel={() => setShowSizeModal(false)}>
+        <div className="grid grid-cols-2 gap-2">
+          {SIZES.map(s => {
+            const active = (watch('size') || 'Medium') === s
+            return (
+              <button key={s} type="button"
+                onClick={() => { setValue('size', s, { shouldDirty: true }); setShowSizeModal(false) }}
+                className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${active ? 'bg-red-900 border-red-600 text-red-200' : 'bg-stone-800 border-stone-600 text-stone-300 hover:border-stone-400'}`}>
+                {s}
+              </button>
+            )
+          })}
+        </div>
       </Modal>
 
       {/* Save button at bottom too */}

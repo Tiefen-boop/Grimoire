@@ -11,7 +11,7 @@ const CHARACTER_FIELDS = [
   'strength','dexterity','constitution','intelligence','wisdom','charisma',
   'saving_throw_profs','skill_profs','skill_expertise',
   'proficiency_bonus','inspiration',
-  'armor_class','initiative_bonus','speed','max_hp','current_hp','temp_hp',
+  'armor_class','armor_class_manual','initiative_bonus','initiative_manual','speed','size','max_hp','current_hp','temp_hp',
   'hit_dice','hit_dice_remaining','death_save_successes','death_save_failures',
   'attacks','equipment','copper','silver','electrum','gold','platinum',
   'personality_traits','ideals','bonds','flaws','features_and_traits',
@@ -47,6 +47,9 @@ function stringifyJsonFields(data) {
     if (f in out && typeof out[f] !== 'string') {
       out[f] = JSON.stringify(out[f])
     }
+  }
+  for (const k of Object.keys(out)) {
+    if (typeof out[k] === 'boolean') out[k] = out[k] ? 1 : 0
   }
   return out
 }

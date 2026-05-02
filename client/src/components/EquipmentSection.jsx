@@ -89,19 +89,19 @@ const WEAPON_PROPERTIES = [
 const CATEGORIES = [
   {
     type: 'weapon', label: 'Weapons', color: 'text-red-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false }),
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
   },
   {
     type: 'usable', label: 'Usables', color: 'text-green-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'usable', attuned: false }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'usable', attuned: false }),
   },
   {
     type: 'misc', label: 'Misc', color: 'text-stone-400',
-    mkDefault: () => ({ name: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
   },
 ]
 
@@ -415,6 +415,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             }
                           })} className="input flex-1 min-w-32"
                             placeholder="Name" autoFocus={!item.name} />
+                          <input {...register(`equipment.${i}.weight`)} className="input w-20" placeholder="Weight (lb)" />
                           <input {...register(`equipment.${i}.price`)} className="input w-24" placeholder="Price" />
                           <div className="flex items-center shrink-0">
                             <button type="button" onClick={() => adjustAmount(i, -1)}
@@ -703,6 +704,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 <span><span className="text-stone-500">AC:</span> {evalFormula(item.ac_formula, charStats)}</span>
                               )}
                               {item.price && <span className="text-stone-500">{item.price}</span>}
+                              {item.weight && isExpanded && <span className="text-stone-400">{item.weight} lb</span>}
                               {item.amount && <span>×{item.amount}</span>}
                               {cat.type !== 'usable' && item.has_charges && (
                                 <>

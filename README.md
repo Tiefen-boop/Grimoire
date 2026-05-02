@@ -64,6 +64,26 @@ npm start
 
 Open `http://localhost:3000` (or your server's IP/domain) in a browser. Log in with the admin credentials you created.
 
+### 6. (Optional) Install as a system service
+
+To have the server start automatically on login, install it as a systemd user service:
+
+```bash
+bash setup-service.sh
+```
+
+This script detects your Node.js binary, writes the service file, and enables it. After this you no longer need to run `npm start` manually.
+
+Useful commands after setup:
+
+```bash
+systemctl --user status grimoire     # check if it's running
+systemctl --user restart grimoire    # restart after server-side code changes
+journalctl --user -u grimoire -f     # follow live logs
+```
+
+> **Note:** User services start on login, not on bare boot. This is fine for personal/LAN use. For a always-on server, see the Hosting Tips section.
+
 ---
 
 ## Running in Development
@@ -160,6 +180,14 @@ After pulling new code:
 ```bash
 npm install
 cd client && npm install && npm run build && cd ..
+```
+
+Then restart the server. If running as a system service:
+```bash
+systemctl --user restart grimoire
+```
+Otherwise:
+```bash
 npm start
 ```
 
@@ -178,11 +206,15 @@ The database is a single SQLite file at the path set by `DB_PATH` in `.env` (def
 ## Hosting Tips
 
 - **Reverse proxy:** Use Nginx or Caddy in front of the Node server to handle HTTPS and serve on port 80/443.
-- **Process manager:** Use [PM2](https://pm2.keymetrics.io/) to keep the server running and restart it on crashes:
+- **System service (Linux):** Run `bash setup-service.sh` to install a systemd user service that starts on login and restarts on crashes. See step 6 of First-Time Setup for details.
+- **Always-on (boot, no login required):** Enable systemd user lingering so the service starts at boot even without a logged-in session:
+  ```bash
+  sudo loginctl enable-linger $USER
+  ```
+- **Process manager (cross-platform alternative):** Use [PM2](https://pm2.keymetrics.io/):
   ```bash
   npm install -g pm2
   pm2 start server/index.js --name grimoire
-  pm2 save
-  pm2 startup
+  pm2 save && pm2 startup
   ```
 - **Port:** Change `PORT` in `.env` to run on a different port.

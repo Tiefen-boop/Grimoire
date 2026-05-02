@@ -1653,7 +1653,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
     const body = equipped.filter(i => i.armor_category !== 'shield')
     const shields = equipped.filter(i => i.armor_category === 'shield')
-    let base = 10
+    let base = 10 + mod(watchedAbilities[1] ?? 10)
     if (body.length > 0) {
       const acs = body.map(i => parseFloat(evalFormula(i.ac_formula, charStats)) || 0)
       base = Math.max(...acs)

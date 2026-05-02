@@ -48,6 +48,9 @@ function stringifyJsonFields(data) {
       out[f] = JSON.stringify(out[f])
     }
   }
+  for (const k of Object.keys(out)) {
+    if (typeof out[k] === 'boolean') out[k] = out[k] ? 1 : 0
+  }
   return out
 }
 

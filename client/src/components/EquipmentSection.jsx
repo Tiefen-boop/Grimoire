@@ -111,6 +111,8 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [expanded, setExpanded]   = useState(new Set())
   const [editing, setEditing]     = useState(new Set())
   const [weaponErrors, setWeaponErrors] = useState(new Set())
+  const [weightErrors, setWeightErrors] = useState(new Set())
+  const [priceErrors,  setPriceErrors]  = useState(new Set())
 
   const dragIndexRef = useRef(null)
 
@@ -415,8 +417,12 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             }
                           })} className="input flex-1 min-w-32"
                             placeholder="Name" autoFocus={!item.name} />
-                          <input {...register(`equipment.${i}.weight`)} className="input w-20" placeholder="Weight (lb)" />
-                          <input {...register(`equipment.${i}.price`)} className="input w-24" placeholder="Price" />
+                          <input {...register(`equipment.${i}.price`, {
+                            onChange: () => setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                          })} className={`input w-24 ${priceErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Price (e.g. 50GP)" />
+                          <input {...register(`equipment.${i}.weight`, {
+                            onChange: () => setWeightErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                          })} className={`input w-24 ${weightErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Weight (e.g. 5lb)" />
                           <div className="flex items-center shrink-0">
                             <button type="button" onClick={() => adjustAmount(i, -1)}
                               className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-l-lg text-stone-200 text-sm leading-none">−</button>
@@ -431,6 +437,24 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 return
                               }
                               setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                              if (item.weight && !/^[0-9]+\s*(lb|LB)$/.test(item.weight)) {
+                                setWeightErrors(prev => new Set([...prev, field.id]))
+                                return
+                              }
+                              setWeightErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                              if (item.weight) {
+                                const m = item.weight.match(/^([0-9]+)\s*(lb|LB)$/)
+                                if (m) setValue(`equipment.${i}.weight`, `${parseInt(m[1], 10)} lb`, { shouldDirty: true })
+                              }
+                              if (item.price && !/^[0-9]+\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/.test(item.price)) {
+                                setPriceErrors(prev => new Set([...prev, field.id]))
+                                return
+                              }
+                              setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                              if (item.price) {
+                                const m = item.price.match(/^([0-9]+)\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/)
+                                if (m) setValue(`equipment.${i}.price`, `${parseInt(m[1], 10)} ${m[2].toUpperCase()}`, { shouldDirty: true })
+                              }
                               stopEdit(field.id)
                             }}
                             className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
@@ -441,6 +465,12 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <TrashIcon className="w-4 h-4" />
                           </button>
                         </div>
+                        {weightErrors.has(field.id) && (
+                          <p className="text-red-400 text-xs">Weight must be a number followed by lb or LB (e.g. 5lb).</p>
+                        )}
+                        {priceErrors.has(field.id) && (
+                          <p className="text-red-400 text-xs">Price must be a number followed by a coin type: CP, SP, EP, GP, or PP (e.g. 50GP).</p>
+                        )}
 
                         {/* Weapon fields */}
                         {cat.type === 'weapon' && (
@@ -704,7 +734,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 <span><span className="text-stone-500">AC:</span> {evalFormula(item.ac_formula, charStats)}</span>
                               )}
                               {item.price && <span className="text-stone-500">{item.price}</span>}
-                              {item.weight && isExpanded && <span className="text-stone-400">{item.weight} lb</span>}
+                              {item.weight && isExpanded && <span className="text-stone-400">{item.weight}</span>}
                               {item.amount && <span>×{item.amount}</span>}
                               {cat.type !== 'usable' && item.has_charges && (
                                 <>

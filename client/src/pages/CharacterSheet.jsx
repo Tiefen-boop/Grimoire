@@ -1473,6 +1473,8 @@ export default function CharacterSheet() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [saveErrorModal, setSaveErrorModal] = useState(null)
+  const [showJsonModal,  setShowJsonModal]  = useState(false)
+  const [jsonCopied,     setJsonCopied]     = useState(false)
   const [campaignChars, setCampaignChars] = useState([])
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
@@ -3414,6 +3416,23 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
       </Modal>
 
+      {/* JSON export */}
+      {showJsonModal && (() => {
+        const json = JSON.stringify(watch(), null, 2)
+        return (
+          <Modal open title="Character JSON" onCancel={() => setShowJsonModal(false)} cancelLabel="Close">
+            <div className="flex justify-end mb-2">
+              <button type="button"
+                onClick={() => { navigator.clipboard.writeText(json); setJsonCopied(true); setTimeout(() => setJsonCopied(false), 2000) }}
+                className={`btn btn-sm ${jsonCopied ? 'bg-green-700 border-green-600 text-white' : 'btn-secondary'}`}>
+                {jsonCopied ? 'Copied!' : 'Copy to clipboard'}
+              </button>
+            </div>
+            <pre className="bg-stone-950 rounded-lg p-3 text-xs text-stone-300 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">{json}</pre>
+          </Modal>
+        )
+      })()}
+
       {/* Save error */}
       <Modal open={!!saveErrorModal} title="Save Failed" danger onCancel={() => setSaveErrorModal(null)} cancelLabel="OK">
         <p className="text-stone-300">{saveErrorModal}</p>
@@ -3508,15 +3527,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Modal>
 
       {/* Save button at bottom too */}
-      {!readOnly && (
-        <div className="flex justify-end gap-2 mt-2">
-          {error && <span className="text-red-400 text-sm self-center">{error}</span>}
+      <div className="flex justify-end gap-2 mt-2 flex-wrap">
+        {error && <span className="text-red-400 text-sm self-center">{error}</span>}
+        <button type="button" onClick={() => { setJsonCopied(false); setShowJsonModal(true) }}
+          className="btn btn-secondary">
+          To JSON
+        </button>
+        {!readOnly && (
           <button type="submit" disabled={isSubmitting}
             className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
             {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create Character' : 'Save Changes'}
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </form>
   )
 }

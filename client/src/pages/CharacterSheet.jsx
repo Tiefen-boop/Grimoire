@@ -392,6 +392,17 @@ function PortraitCropModal({ onClose, onCrop }) {
     setCropBox({ x: rx + (rw - size) / 2, y: ry + (rh - size) / 2, size })
   }
 
+  useEffect(() => {
+    const blockScroll = e => e.preventDefault()
+    document.addEventListener('touchmove', blockScroll, { passive: false })
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('touchmove', blockScroll)
+      document.body.style.overflow = prev
+    }
+  }, [])
+
   function startDrag(e, type) {
     e.preventDefault(); e.stopPropagation()
     dragRef.current = { type, startX: e.clientX, startY: e.clientY, startBox: { ...cropBox } }
@@ -400,6 +411,7 @@ function PortraitCropModal({ onClose, onCrop }) {
   }
 
   function onMove(e) {
+    e.preventDefault()
     if (!dragRef.current || !renderedImg) return
     const { type, startX, startY, startBox } = dragRef.current
     const dx = e.clientX - startX, dy = e.clientY - startY
@@ -465,7 +477,7 @@ function PortraitCropModal({ onClose, onCrop }) {
         ) : (
           <>
             <p className="text-stone-500 text-xs mb-2">Drag to reposition · Drag corners to resize</p>
-            <div ref={containerRef} className="relative select-none overflow-hidden rounded-lg bg-stone-950" style={{ height: 380 }}>
+            <div ref={containerRef} className="relative select-none overflow-hidden rounded-lg bg-stone-950" style={{ height: 380, touchAction: 'none' }}>
               <img src={imgSrc} ref={setImgEl} onLoad={handleImgLoad}
                 className="absolute inset-0 w-full h-full object-contain" draggable={false} alt="crop preview" />
               {cropBox && (
@@ -481,11 +493,13 @@ function PortraitCropModal({ onClose, onCrop }) {
                       backgroundImage: 'linear-gradient(rgba(255,255,255,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.15) 1px,transparent 1px)',
                       backgroundSize: '33.33% 33.33%'
                     }} />
-                    {[['nw',{top:-5,left:-5},'nw-resize'],['ne',{top:-5,right:-5},'ne-resize'],
-                      ['sw',{bottom:-5,left:-5},'sw-resize'],['se',{bottom:-5,right:-5},'se-resize']
+                    {[['nw',{top:-16,left:-16},'nw-resize'],['ne',{top:-16,right:-16},'ne-resize'],
+                      ['sw',{bottom:-16,left:-16},'sw-resize'],['se',{bottom:-16,right:-16},'se-resize']
                     ].map(([dir, pos, cur]) => (
-                      <div key={dir} className="absolute w-3 h-3 bg-white rounded-sm"
-                        style={{ ...pos, cursor: cur }} onPointerDown={e => startDrag(e, dir)} />
+                      <div key={dir} className="absolute w-8 h-8 flex items-center justify-center"
+                        style={{ ...pos, cursor: cur }} onPointerDown={e => startDrag(e, dir)}>
+                        <div className="w-3 h-3 bg-white rounded-sm" />
+                      </div>
                     ))}
                   </div>
                 </>

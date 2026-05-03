@@ -55,6 +55,11 @@ function parseCurrencyExpr(str) {
   try { const r = parseExpr(); return isFinite(r) ? r : null } catch { return null }
 }
 
+function fmtAttack(val) {
+  const n = Number(val)
+  return !isNaN(n) && isFinite(n) && n > 0 ? `+${val}` : val
+}
+
 function detectWeaponType(name) {
   if (!name) return null
   const lower = name.toLowerCase()
@@ -89,7 +94,7 @@ const WEAPON_PROPERTIES = [
 const CATEGORIES = [
   {
     type: 'weapon', label: 'Weapons', color: 'text-red-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false, versatile_damage_roll: '' }),
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
@@ -359,6 +364,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       setValue(`equipment.${i}.finesse_attack_modifier`, swapStrDex(watch(`equipment.${i}.attack_modifier`)), { shouldDirty: true })
       setValue(`equipment.${i}.finesse_damage_roll`,     swapStrDex(watch(`equipment.${i}.damage_roll`)),     { shouldDirty: true })
     }
+    if (propName === 'Versatile' && propExtra) {
+      const mainDmg = watch(`equipment.${i}.damage_roll`) || ''
+      const versatileDmg = mainDmg ? mainDmg.replace(/\d+d\d+/, propExtra) : propExtra
+      setValue(`equipment.${i}.versatile_damage_roll`, versatileDmg, { shouldDirty: true })
+    }
     setPropFormFor(null); setPropName(''); setPropExtra('')
   }
   function handleFinesse(i) {
@@ -546,6 +556,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   placeholder="Finesse attack (e.g. DEX+prof)" />
                                 <input {...register(`equipment.${i}.finesse_damage_roll`)} className="input flex-1 min-w-36"
                                   placeholder="Finesse damage (e.g. 1d8+DEX[slashing])" />
+                              </div>
+                            )}
+                            {props.some(p => p.name === 'Versatile') && (
+                              <div className="flex gap-2 flex-wrap items-center">
+                                <span className="text-xs text-yellow-400 shrink-0 w-16">Versatile:</span>
+                                <input {...register(`equipment.${i}.versatile_damage_roll`)} className="input flex-1 min-w-36"
+                                  placeholder="Two-handed damage (e.g. 1d10+STR[slashing])" />
                               </div>
                             )}
                             {/* Properties */}
@@ -761,11 +778,12 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           ) && (
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ml-5 mt-1 text-xs text-stone-400">
                               {cat.type === 'weapon' && item.attack_modifier && (
-                                <span><span className="text-stone-500">Att:</span> {evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats)}</span>
+                                <span><span className="text-stone-500">Att:</span> {fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats))}</span>
                               )}
                               {cat.type === 'weapon' && item.damage_roll && (() => {
                                 const versatileProp = (item.properties || []).find(p => p.name === 'Versatile')
-                                const effectiveDmg = item.versatile_active && versatileProp?.extra ? versatileProp.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                                const versatileDmg  = item.versatile_damage_roll || versatileProp?.extra
+                                const effectiveDmg = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
                                 return <span><span className="text-stone-500">Dmg:</span> {evalFormula(effectiveDmg, charStats)}</span>
                               })()}
                               {cat.type === 'armor' && item.ac_formula && (
@@ -805,11 +823,12 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </span>
                                   )}
                                   {item.attack_modifier && (
-                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats)}</span></span>
+                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats))}</span></span>
                                   )}
                                   {item.damage_roll && (() => {
                                     const versatileProp = props.find(p => p.name === 'Versatile')
-                                    const effectiveDmg = item.versatile_active && versatileProp?.extra ? versatileProp.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                                    const versatileDmg  = item.versatile_damage_roll || versatileProp?.extra
+                                    const effectiveDmg = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
                                     return <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{evalFormula(effectiveDmg, charStats)}</span></span>
                                   })()}
                                 </div>

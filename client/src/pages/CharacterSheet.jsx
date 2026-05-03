@@ -104,6 +104,11 @@ function mod(score) {
   return Math.floor((score - 10) / 2)
 }
 
+function fmtAttack(val) {
+  const n = Number(val)
+  return !isNaN(n) && isFinite(n) && n > 0 ? `+${val}` : val
+}
+
 const HD_DIE_SIZES = [4, 6, 8, 10, 12, 20]
 
 const WEAPON_TYPES = {
@@ -2867,7 +2872,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         <td className="py-2 pr-3 text-center">
                           {unarmedEditing && !readOnly
                             ? <input {...register('unarmed_attack_modifier')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+prof" />
-                            : <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>}
+                            : <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}</span>}
                         </td>
                         <td className="py-2 pr-3 text-center">
                           {unarmedEditing && !readOnly
@@ -2886,7 +2891,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     const range      = rangeProp?.extra || null
                     const atkFormula = item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier
                     const versatile  = (item.properties || []).find(p => p.name === 'Versatile')
-                    const dmgFormula = item.versatile_active && versatile?.extra ? versatile.extra : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
+                    const versatileDmg = item.versatile_damage_roll || versatile?.extra
+                    const dmgFormula = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
                     const proficient = checkWeaponProficiency(item, watchedWeaponProfs)
                     const evalStats  = proficient === false ? { ...charStats, proficiency_bonus: 0 } : charStats
                     const atkValue   = atkFormula ? evalFormula(atkFormula, evalStats) : '—'
@@ -2911,7 +2917,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             </div>
                           </td>
                           <td className="py-2 pr-3 text-center">
-                            <span className="text-stone-100 font-bold text-base tabular-nums">{atkValue}</span>
+                            <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}</span>
                           </td>
                           <td className="py-2 pr-3 text-center">
                             <span className="text-stone-100 font-bold text-base">{dmgValue}</span>

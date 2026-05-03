@@ -1468,7 +1468,7 @@ export default function CharacterSheet() {
   const { fields: classFields,  append: addClass,  remove: removeClass  } = useFieldArray({ control, name: 'classes' })
   const { fields: featureFields, append: addFeature, remove: removeFeature, move: moveFeature } = useFieldArray({ control, name: 'features_list' })
 
-  const [loading, setLoading] = useState(!isNew)
+  const [loading, setLoading] = useState(true)
   const [readOnly, setReadOnly] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -1624,7 +1624,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => {
       handleSubmitRef.current(onSubmitRef.current)()
-    }, 1500)
+    }, 1000)
     return () => clearTimeout(autoSaveTimer.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedJson, editingFeatures.size, equipmentHasEditing])
@@ -1966,11 +1966,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   }, [JSON.stringify(activeConditions), watchedExhaustion])
 
   useEffect(() => {
-    if (isNew) return
+    if (isNew) {
+      api.post('/characters', { name: '' })
+        .then(r => navigate(`/characters/${r.data.id}`, { replace: true, state: location.state }))
+        .catch(() => { setError('Failed to create character'); setLoading(false) })
+      return
+    }
     api.get(`/characters/${id}`)
       .then(r => {
         const data = r.data
-        // flatten spell_slots to form-friendly shape
         isInitialLoadRef.current = true
         reset(data)
         savedValuesRef.current = JSON.stringify(data)

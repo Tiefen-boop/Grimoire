@@ -169,6 +169,40 @@ function computeHitDice(classes) {
     .join('+')
 }
 
+function parseHitDiceCounts(str) {
+  const counts = {}
+  for (const seg of String(str || '').split('+')) {
+    const m = seg.trim().match(/^(\d+)d(\d+)$/)
+    if (m) counts[parseInt(m[2])] = (counts[parseInt(m[2])] || 0) + parseInt(m[1])
+  }
+  return counts
+}
+
+function addHitDiceStr(a, b) {
+  const counts = {}
+  for (const [size, n] of [...Object.entries(parseHitDiceCounts(a)), ...Object.entries(parseHitDiceCounts(b))]) {
+    counts[size] = (counts[size] || 0) + n
+  }
+  return Object.entries(counts)
+    .filter(([, c]) => c > 0)
+    .sort(([a], [b]) => parseInt(a) - parseInt(b))
+    .map(([s, c]) => `${c}d${s}`)
+    .join('+') || ''
+}
+
+function hitDiceDelta(oldStr, newStr) {
+  const old = parseHitDiceCounts(oldStr), next = parseHitDiceCounts(newStr)
+  const result = {}
+  for (const size of new Set([...Object.keys(old), ...Object.keys(next)])) {
+    const delta = (next[parseInt(size)] || 0) - (old[parseInt(size)] || 0)
+    if (delta > 0) result[size] = delta
+  }
+  return Object.entries(result)
+    .sort(([a], [b]) => parseInt(a) - parseInt(b))
+    .map(([s, c]) => `${c}d${s}`)
+    .join('+') || ''
+}
+
 function cleanHitDiceInput(str) {
   // Keep only valid ndm segments, drop free text / bare numbers
   if (!str) return ''
@@ -1548,6 +1582,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   const [editingClasses,  setEditingClasses]  = useState(new Set())
   const prevClassesLengthRef = useRef(0)
+  const classPreEditRef = useRef({})
   const pendingNewClass      = useRef(false)
   const [levelUpModal,      setLevelUpModal]      = useState(null) // { index, className }
   const [deleteClassModal,  setDeleteClassModal]  = useState(null) // { index, className, isSpellcaster }
@@ -1667,8 +1702,20 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setValue(`features_list.${i}.charges_current`, Math.max(0, curr - 1), { shouldDirty: true })
   }
 
-  function startEditClass(fieldId) { setEditingClasses(prev => new Set([...prev, fieldId])) }
-  function stopEditClass(fieldId)  { setEditingClasses(prev => { const n = new Set(prev); n.delete(fieldId); return n }) }
+  function startEditClass(fieldId) {
+    const i = classFields.findIndex(f => f.id === fieldId)
+    classPreEditRef.current[fieldId] = { level: allClasses[i]?.level || 0, hit_die: allClasses[i]?.hit_die || '' }
+    setEditingClasses(prev => new Set([...prev, fieldId]))
+  }
+  function stopEditClass(fieldId) {
+    const i = classFields.findIndex(f => f.id === fieldId)
+    const cls = allClasses[i]
+    const pre = classPreEditRef.current[fieldId] || { level: 0, hit_die: '' }
+    delete classPreEditRef.current[fieldId]
+    const delta = hitDiceDelta(computeHitDice([pre]), computeHitDice([{ level: cls?.level || 0, hit_die: cls?.hit_die || '' }]))
+    if (delta) setValue('hit_dice_remaining', addHitDiceStr(watch('hit_dice_remaining') || '', delta), { shouldDirty: true })
+    setEditingClasses(prev => { const n = new Set(prev); n.delete(fieldId); return n })
+  }
   function handleRemoveClass(i) {
     const cls = allClasses[i] || {}
     setDeleteClassModal({ index: i, className: cls.name || 'this class', isSpellcaster: !!cls.is_spellcaster, step: 1 })
@@ -1687,8 +1734,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setLevelUpModal({ index: i, className: allClasses[i]?.name || 'this class' })
   }
   function confirmLevelUp() {
-    const curr = parseInt(watch(`classes.${levelUpModal.index}.level`)) || 0
-    setValue(`classes.${levelUpModal.index}.level`, curr + 1, { shouldDirty: true })
+    const i = levelUpModal.index
+    const cls = allClasses[i]
+    const m = String(cls?.hit_die || '').match(/^(\d*)[dD](\d+)$/)
+    if (m) {
+      const die = `${parseInt(m[1]) || 1}d${m[2]}`
+      setValue('hit_dice_remaining', addHitDiceStr(watch('hit_dice_remaining') || '', die), { shouldDirty: true })
+    }
+    const curr = parseInt(watch(`classes.${i}.level`)) || 0
+    setValue(`classes.${i}.level`, curr + 1, { shouldDirty: true })
     setValue('experience_points', 0, { shouldDirty: true })
     setLevelUpModal(null)
   }
@@ -1896,12 +1950,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(allClasses.map(c => c.level))])
 
-  // Auto-sync hit_dice from class levels/hit_die; seed hit_dice_remaining when empty
+  // Auto-sync hit_dice from class levels/hit_die; seed hit_dice_remaining when empty and not editing
   useEffect(() => {
     const computed = computeHitDice(allClasses)
     setValue('hit_dice', computed)
     const remaining = watch('hit_dice_remaining')
-    if (!remaining || remaining === '') setValue('hit_dice_remaining', computed)
+    if ((!remaining || remaining === '') && editingClasses.size === 0) setValue('hit_dice_remaining', computed)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(allClasses.map(c => [c.level, c.hit_die]))])
 

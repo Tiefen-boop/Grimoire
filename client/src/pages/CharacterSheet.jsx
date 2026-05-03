@@ -3322,12 +3322,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
         <div className={activeTab === 'combat' ? 'hidden' : ''}>
         <SubSection title="Languages" defaultOpen={false} bare={activeTab === 'roleplay'}>
-          <FreeTagInput
-            selected={watchedLanguages}
-            onChange={next => setValue('languages', next, { shouldDirty: true })}
-            readOnly={readOnly}
-            placeholder="Type a language and press Enter…"
-          />
+          {activeTab === 'roleplay' ? (
+            <div className="flex flex-wrap gap-2">
+              {watchedLanguages.length > 0
+                ? watchedLanguages.map(lang => (
+                    <span key={lang} className="bg-stone-800 border border-stone-600 text-stone-200 text-sm px-3 py-1 rounded-lg">
+                      {lang}
+                    </span>
+                  ))
+                : <span className="text-stone-500 text-sm italic">No languages recorded.</span>
+              }
+            </div>
+          ) : (
+            <FreeTagInput
+              selected={watchedLanguages}
+              onChange={next => setValue('languages', next, { shouldDirty: true })}
+              readOnly={readOnly}
+              placeholder="Type a language and press Enter…"
+            />
+          )}
         </SubSection>
         </div>{/* end languages visibility wrapper */}
 

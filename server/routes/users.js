@@ -43,6 +43,18 @@ router.post('/', requireAdmin, (req, res) => {
   }
 })
 
+router.put('/me/password', requireAuth, (req, res) => {
+  const { current_password, new_password } = req.body
+  if (!current_password || !new_password) return res.status(400).json({ error: 'current_password and new_password required' })
+  if (new_password.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' })
+  const db = getDb()
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)
+  if (!bcrypt.compareSync(current_password, user.password_hash)) return res.status(403).json({ error: 'Current password is incorrect' })
+  const hash = bcrypt.hashSync(new_password, 10)
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id)
+  res.json({ success: true })
+})
+
 router.put('/:id/password', requireAdmin, (req, res) => {
   const { password } = req.body
   if (!password) return res.status(400).json({ error: 'Password required' })

@@ -1058,7 +1058,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                     return (
                       <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
                         {isEditingSpell && !readOnly ? (
-                          <div className="px-3 py-2 space-y-2">
+                          <div className="px-3 py-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) stopEditSpell(field.id) }}>
                             {/* Row 1: name, cast time, range + action buttons */}
                             <div className="flex gap-2 flex-wrap items-center">
                               <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
@@ -1472,6 +1472,7 @@ export default function CharacterSheet() {
   const [readOnly, setReadOnly] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [saveErrorModal, setSaveErrorModal] = useState(null)
   const [campaignChars, setCampaignChars] = useState([])
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
@@ -2038,7 +2039,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         setTimeout(() => setSaved(false), 2000)
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Save failed')
+      setSaveErrorModal(err.response?.data?.error || 'Save failed')
     }
   }
 
@@ -3039,7 +3040,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             return (
               <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingFeatureId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
                 {isEditing && !readOnly ? (
-                  <div className="p-2 space-y-2">
+                  <div className="p-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) stopEditFeature(field.id) }}>
                     {/* Name + Source + action buttons */}
                     <div className="flex gap-2 flex-wrap items-center">
                       <input {...register(`features_list.${i}.name`)} className="input flex-1 min-w-32" placeholder="Feature name" autoFocus={!featName} />
@@ -3411,6 +3412,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         onConfirm={confirmLevelUp} onCancel={() => setLevelUpModal(null)} confirmLabel="Level Up">
         Level up in <strong>{levelUpModal?.className}</strong>?{' '}
         (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
+      </Modal>
+
+      {/* Save error */}
+      <Modal open={!!saveErrorModal} title="Save Failed" danger onCancel={() => setSaveErrorModal(null)} cancelLabel="OK">
+        <p className="text-stone-300">{saveErrorModal}</p>
+        <p className="text-stone-500 text-sm mt-1">Your changes may not have been saved. Check your connection and try again.</p>
       </Modal>
 
       {/* Feature modals */}

@@ -339,6 +339,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     }
   }
 
+  function autoFillAttack(index, range) {
+    if (watch(`equipment.${index}.attack_modifier`)) return
+    setValue(`equipment.${index}.attack_modifier`, range === 'ranged' ? 'DEX+prof' : 'STR+prof', { shouldDirty: true })
+  }
+
   // Property helpers
   const selPropDef = WEAPON_PROPERTIES.find(p => p.name === propName)
   function openPropForm(fid) { setPropFormFor(fid); setPropName(''); setPropExtra('') }
@@ -423,12 +428,36 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                 const item       = allEquip[i] || {}
                 const props      = item.properties || []
 
+                function confirmEdit() {
+                  if (cat.type === 'weapon' && !item.weapon_specific) {
+                    setWeaponErrors(prev => new Set([...prev, field.id])); return
+                  }
+                  setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  if (item.weight && !/^[0-9]+\s*(lb|LB)$/.test(item.weight)) {
+                    setWeightErrors(prev => new Set([...prev, field.id])); return
+                  }
+                  setWeightErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  if (item.weight) {
+                    const m = item.weight.match(/^([0-9]+)\s*(lb|LB)$/)
+                    if (m) setValue(`equipment.${i}.weight`, `${parseInt(m[1], 10)} lb`, { shouldDirty: true })
+                  }
+                  if (item.price && !/^[0-9]+\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/.test(item.price)) {
+                    setPriceErrors(prev => new Set([...prev, field.id])); return
+                  }
+                  setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  if (item.price) {
+                    const m = item.price.match(/^([0-9]+)\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/)
+                    if (m) setValue(`equipment.${i}.price`, `${parseInt(m[1], 10)} ${m[2].toUpperCase()}`, { shouldDirty: true })
+                  }
+                  stopEdit(field.id)
+                }
+
                 return (
                   <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingEquipId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
 
                     {/* ── EDIT MODE ─────────────────────────────────────── */}
                     {isEditing && !readOnly ? (
-                      <div className="p-2 space-y-2">
+                      <div className="p-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) confirmEdit() }}>
                         {/* Base row */}
                         <div className="flex gap-2 flex-wrap items-center">
                           <input {...register(`equipment.${i}.name`, {
@@ -439,8 +468,8 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               if (match) {
                                 setValue(`equipment.${i}.weapon_class`, match.weapon_class, { shouldDirty: true })
                                 setValue(`equipment.${i}.weapon_range`, match.weapon_range, { shouldDirty: true })
-                                // Defer specific until after options re-render with correct class/range
                                 setTimeout(() => setValue(`equipment.${i}.weapon_specific`, match.weapon_specific, { shouldDirty: true }), 0)
+                                autoFillAttack(i, match.weapon_range)
                               }
                             }
                           })} className="input flex-1 min-w-32"
@@ -459,32 +488,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-r-lg text-stone-200 text-sm leading-none">+</button>
                           </div>
                           <button type="button"
-                            onClick={() => {
-                              if (cat.type === 'weapon' && !item.weapon_specific) {
-                                setWeaponErrors(prev => new Set([...prev, field.id]))
-                                return
-                              }
-                              setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                              if (item.weight && !/^[0-9]+\s*(lb|LB)$/.test(item.weight)) {
-                                setWeightErrors(prev => new Set([...prev, field.id]))
-                                return
-                              }
-                              setWeightErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                              if (item.weight) {
-                                const m = item.weight.match(/^([0-9]+)\s*(lb|LB)$/)
-                                if (m) setValue(`equipment.${i}.weight`, `${parseInt(m[1], 10)} lb`, { shouldDirty: true })
-                              }
-                              if (item.price && !/^[0-9]+\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/.test(item.price)) {
-                                setPriceErrors(prev => new Set([...prev, field.id]))
-                                return
-                              }
-                              setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                              if (item.price) {
-                                const m = item.price.match(/^([0-9]+)\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/)
-                                if (m) setValue(`equipment.${i}.price`, `${parseInt(m[1], 10)} ${m[2].toUpperCase()}`, { shouldDirty: true })
-                              }
-                              stopEdit(field.id)
-                            }}
+                            onClick={confirmEdit}
                             className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
                             <CheckIcon className="w-4 h-4" />
                           </button>
@@ -510,7 +514,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 {WEAPON_CLASS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                               </select>
                               <select {...register(`equipment.${i}.weapon_range`, {
-                                onChange: () => setValue(`equipment.${i}.weapon_specific`, '', { shouldDirty: true })
+                                onChange: e => {
+                                  setValue(`equipment.${i}.weapon_specific`, '', { shouldDirty: true })
+                                  autoFillAttack(i, e.target.value)
+                                }
                               })} className="input w-28">
                                 {WEAPON_RANGE.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                               </select>

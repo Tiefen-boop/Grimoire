@@ -110,9 +110,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
   const [expanded, setExpanded]   = useState(new Set())
   const [editing, setEditing]     = useState(new Set())
-  const [weaponErrors, setWeaponErrors] = useState(new Set())
-  const [weightErrors, setWeightErrors] = useState(new Set())
-  const [priceErrors,  setPriceErrors]  = useState(new Set())
+  const [weaponErrors,    setWeaponErrors]    = useState(new Set())
+  const [weightErrors,    setWeightErrors]    = useState(new Set())
+  const [priceErrors,     setPriceErrors]     = useState(new Set())
+  const [draggingEquipId, setDraggingEquipId] = useState(null)
 
   const dragIndexRef = useRef(null)
 
@@ -180,6 +181,33 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   useEffect(() => {
     onEditingChange?.(editing.size > 0)
   }, [editing.size])
+
+  const equipTouchMoveRef = useRef(null)
+  equipTouchMoveRef.current = (e) => {
+    if (dragIndexRef.current === null) return
+    e.preventDefault()
+    const touch = e.touches[0]
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    const target = el?.closest('[data-reorder-type="equipment"]')
+    if (!target) return
+    const targetIndex = parseInt(target.dataset.reorderIndex)
+    if (!isNaN(targetIndex) && targetIndex !== dragIndexRef.current &&
+        allEquip[dragIndexRef.current]?.type === allEquip[targetIndex]?.type) {
+      move(dragIndexRef.current, targetIndex)
+      dragIndexRef.current = targetIndex
+    }
+  }
+  useEffect(() => {
+    const onMove = (e) => equipTouchMoveRef.current(e)
+    const onEnd  = () => { dragIndexRef.current = null; setDraggingEquipId(null) }
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend',  onEnd)
+    return () => {
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend',  onEnd)
+    }
+  }, [])
+
   const prevLen                   = useRef(0)
   const pendingNewItem            = useRef(false)
 
@@ -396,7 +424,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                 const props      = item.properties || []
 
                 return (
-                  <div key={field.id} className="bg-stone-800 border border-stone-700 rounded-lg overflow-hidden">
+                  <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingEquipId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
 
                     {/* ── EDIT MODE ─────────────────────────────────────── */}
                     {isEditing && !readOnly ? (
@@ -614,6 +642,8 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                     ) : (
                     /* ── VIEW MODE ──────────────────────────────────────── */
                       <div
+                        data-reorder-type="equipment"
+                        data-reorder-index={i}
                         onDragOver={e => {
                           e.preventDefault()
                           if (dragIndexRef.current !== null && dragIndexRef.current !== i &&
@@ -633,8 +663,9 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             {!readOnly && (
                               <span
                                 draggable
-                                onDragStart={e => { e.stopPropagation(); dragIndexRef.current = i }}
-                                onDragEnd={() => { dragIndexRef.current = null }}
+                                onDragStart={e => { e.stopPropagation(); dragIndexRef.current = i; setDraggingEquipId(field.id) }}
+                                onDragEnd={() => { dragIndexRef.current = null; setDraggingEquipId(null) }}
+                                onTouchStart={e => { e.stopPropagation(); dragIndexRef.current = i; setDraggingEquipId(field.id) }}
                                 onClick={e => e.stopPropagation()}
                                 title="Drag to reorder"
                                 className="cursor-grab active:cursor-grabbing text-stone-600 hover:text-stone-400 select-none shrink-0 text-sm leading-none"

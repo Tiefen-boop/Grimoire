@@ -815,7 +815,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
 }
 
 function SpellcastingBlock({ classIndex, castingAbility, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
-  const { fields: spellFields, append: addSpell, remove: removeSpell } = useFieldArray({
+  const { fields: spellFields, append: addSpell, remove: removeSpell, move: moveSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
   })
   const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
@@ -832,7 +832,9 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
     catch { return {} }
   })
   const prevSpellsLengthRef = useRef(0)
-  const pendingNewSpell = useRef(false)
+  const pendingNewSpell     = useRef(false)
+  const spellDragRef        = useRef(null)
+  const [draggingSpellId, setDraggingSpellId] = useState(null)
 
   useEffect(() => {
     if (pendingNewSpell.current && spellFields.length > prevSpellsLengthRef.current) {
@@ -856,6 +858,32 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
     addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
   }
+  const spellTouchMoveRef = useRef(null)
+  spellTouchMoveRef.current = (e) => {
+    if (spellDragRef.current === null) return
+    e.preventDefault()
+    const touch = e.touches[0]
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    const target = el?.closest('[data-reorder-type="spell"]')
+    if (!target) return
+    const targetIndex = parseInt(target.dataset.reorderIndex)
+    if (!isNaN(targetIndex) && targetIndex !== spellDragRef.current &&
+        allSpells[spellDragRef.current]?.level === allSpells[targetIndex]?.level) {
+      moveSpell(spellDragRef.current, targetIndex)
+      spellDragRef.current = targetIndex
+    }
+  }
+  useEffect(() => {
+    const onMove = (e) => spellTouchMoveRef.current(e)
+    const onEnd  = () => { spellDragRef.current = null; setDraggingSpellId(null) }
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend',  onEnd)
+    return () => {
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend',  onEnd)
+    }
+  }, [])
+
   function startEditSpell(fieldId) { setEditingSpells(prev => new Set([...prev, fieldId])) }
   function stopEditSpell(fieldId)  { setEditingSpells(prev => { const n = new Set(prev); n.delete(fieldId); return n }) }
   function toggleExpandSpell(fieldId) {
@@ -1014,7 +1042,7 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                     const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description
 
                     return (
-                      <div key={field.id}>
+                      <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
                         {isEditingSpell && !readOnly ? (
                           <div className="px-3 py-2 space-y-2">
                             {/* Row 1: name, cast time, range + action buttons */}
@@ -1075,10 +1103,33 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
                             />
                           </div>
                         ) : (
-                          <div>
+                          <div
+                            data-reorder-type="spell"
+                            data-reorder-index={i}
+                            onDragOver={e => {
+                              e.preventDefault()
+                              if (spellDragRef.current !== null && spellDragRef.current !== i &&
+                                  allSpells[spellDragRef.current]?.level === allSpells[i]?.level) {
+                                moveSpell(spellDragRef.current, i)
+                                spellDragRef.current = i
+                              }
+                            }}
+                            onDrop={e => e.preventDefault()}
+                          >
                             {/* View mode header row */}
                             <div className="flex items-start gap-1.5 px-3 py-2 cursor-pointer select-none"
                               onClick={() => toggleExpandSpell(field.id)}>
+                              {!readOnly && (
+                                <span
+                                  draggable
+                                  onDragStart={e => { e.stopPropagation(); spellDragRef.current = i; setDraggingSpellId(field.id) }}
+                                  onDragEnd={() => { spellDragRef.current = null; setDraggingSpellId(null) }}
+                                  onTouchStart={e => { e.stopPropagation(); spellDragRef.current = i; setDraggingSpellId(field.id) }}
+                                  onClick={e => e.stopPropagation()}
+                                  title="Drag to reorder within level"
+                                  className="cursor-grab active:cursor-grabbing text-stone-600 hover:text-stone-400 select-none shrink-0 text-sm leading-none mt-0.5"
+                                >⠿</span>
+                              )}
                               <ChevronDownIcon className={`w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5 transition-transform ${isExpandedSpell ? '' : '-rotate-90'}`} />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5">
@@ -1401,7 +1452,7 @@ export default function CharacterSheet() {
   })
 
   const { fields: classFields,  append: addClass,  remove: removeClass  } = useFieldArray({ control, name: 'classes' })
-  const { fields: featureFields, append: addFeature, remove: removeFeature } = useFieldArray({ control, name: 'features_list' })
+  const { fields: featureFields, append: addFeature, remove: removeFeature, move: moveFeature } = useFieldArray({ control, name: 'features_list' })
 
   const [loading, setLoading] = useState(!isNew)
   const [readOnly, setReadOnly] = useState(false)
@@ -1468,7 +1519,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [unarmedEditing,   setUnarmedEditing]   = useState(false)
   const [editingFeatures, setEditingFeatures] = useState(new Set())
   const prevFeaturesLengthRef = useRef(0)
-  const pendingNewFeature = useRef(false)
+  const pendingNewFeature    = useRef(false)
+  const featureDragRef       = useRef(null)
+  const [draggingFeatureId, setDraggingFeatureId] = useState(null)
   const [outOfChargesModal, setOutOfChargesModal] = useState(null) // { name }
 
   const [editingClasses,  setEditingClasses]  = useState(new Set())
@@ -1509,6 +1562,31 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }
     prevFeaturesLengthRef.current = featureFields.length
   }, [featureFields.length])
+
+  const featureTouchMoveRef = useRef(null)
+  featureTouchMoveRef.current = (e) => {
+    if (featureDragRef.current === null) return
+    e.preventDefault()
+    const touch = e.touches[0]
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    const target = el?.closest('[data-reorder-type="feature"]')
+    if (!target) return
+    const targetIndex = parseInt(target.dataset.reorderIndex)
+    if (!isNaN(targetIndex) && targetIndex !== featureDragRef.current) {
+      moveFeature(featureDragRef.current, targetIndex)
+      featureDragRef.current = targetIndex
+    }
+  }
+  useEffect(() => {
+    const onMove = (e) => featureTouchMoveRef.current(e)
+    const onEnd  = () => { featureDragRef.current = null; setDraggingFeatureId(null) }
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend',  onEnd)
+    return () => {
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend',  onEnd)
+    }
+  }, [])
 
   useEffect(() => {
     if (pendingNewClass.current && classFields.length > prevClassesLengthRef.current) {
@@ -2941,7 +3019,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             const featChargesRech   = watch(`features_list.${i}.charges_recharge`)
             const rechLabel = featChargesRech === 'short' ? 'Short Rest' : featChargesRech === 'long' ? 'Long Rest' : null
             return (
-              <div key={field.id} className="bg-stone-800 border border-stone-700 rounded-lg overflow-hidden">
+              <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingFeatureId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
                 {isEditing && !readOnly ? (
                   <div className="p-2 space-y-2">
                     {/* Name + Source + action buttons */}
@@ -3001,9 +3079,31 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                   </div>
                 ) : (
-                  <div>
+                  <div
+                    data-reorder-type="feature"
+                    data-reorder-index={i}
+                    onDragOver={e => {
+                      e.preventDefault()
+                      if (featureDragRef.current !== null && featureDragRef.current !== i) {
+                        moveFeature(featureDragRef.current, i)
+                        featureDragRef.current = i
+                      }
+                    }}
+                    onDrop={e => e.preventDefault()}
+                  >
                     <div className="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none"
                       onClick={() => toggleExpandFeature(field.id)}>
+                      {!readOnly && (
+                        <span
+                          draggable
+                          onDragStart={e => { e.stopPropagation(); featureDragRef.current = i; setDraggingFeatureId(field.id) }}
+                          onDragEnd={() => { featureDragRef.current = null; setDraggingFeatureId(null) }}
+                          onTouchStart={e => { e.stopPropagation(); featureDragRef.current = i; setDraggingFeatureId(field.id) }}
+                          onClick={e => e.stopPropagation()}
+                          title="Drag to reorder"
+                          className="cursor-grab active:cursor-grabbing text-stone-600 hover:text-stone-400 select-none shrink-0 text-sm leading-none"
+                        >⠿</span>
+                      )}
                       <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">

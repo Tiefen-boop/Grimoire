@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="pageL" x1="4" y1="46" x2="62" y2="126">
+      <stop offset="0%" stop-color="#fff8d8"></stop>
+      <stop offset="100%" stop-color="#c7a86a"></stop>
+    </linearGradient>
+
+    <linearGradient id="pageR" x1="124" y1="46" x2="66" y2="126">
+      <stop offset="0%" stop-color="#fff0bd"></stop>
+      <stop offset="100%" stop-color="#b78f4a"></stop>
+    </linearGradient>
+
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"></feGaussianBlur>
+      <feMerge>
+        <feMergeNode in="blur"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000" flood-opacity=".45"></feDropShadow>
+    </filter>
+  </defs>
+
+  <!-- Book fills the bottom and stretches wide -->
+  <g filter="url(#shadow)">
+    <!-- cover -->
+    <path d="M1 62 C23 49 47 51 64 70 C81 51 105 49 127 62 L122 125 C98 115 79 115 64 127 C49 115 30 115 6 125 Z" fill="#5b241e"></path>
+
+    <!-- left page -->
+    <path d="M5 56 C28 41 49 47 64 68 L64 125 C46 108 27 106 5 119 Z" fill="url(#pageL)"></path>
+
+    <!-- right page -->
+    <path d="M123 56 C100 41 79 47 64 68 L64 125 C82 108 101 106 123 119 Z" fill="url(#pageR)"></path>
+
+    <!-- spine -->
+    <path d="M64 68 L64 127" stroke="#5f3d1b" stroke-width="4" opacity=".85"></path>
+
+    <!-- bold page lines -->
+    <path d="M18 73 C34 66 48 68 58 78" stroke="#7a5528" stroke-width="3" opacity=".45" fill="none"></path>
+    <path d="M18 89 C35 82 49 85 58 94" stroke="#7a5528" stroke-width="2.5" opacity=".35" fill="none"></path>
+    <path d="M110 73 C94 66 80 68 70 78" stroke="#7a5528" stroke-width="3" opacity=".45" fill="none"></path>
+    <path d="M110 89 C93 82 79 85 70 94" stroke="#7a5528" stroke-width="2.5" opacity=".35" fill="none"></path>
+  </g>
+
+  <!-- wider, readable magic wisps -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M64 65 C49 50 75 41 64 25 C55 12 75 7 83 1" stroke="#6ee7ff" stroke-width="8"></path>
+
+    <path d="M58 68 C35 52 50 36 35 27 C22 19 29 7 42 2" stroke="#b28cff" stroke-width="7"></path>
+
+    <path d="M70 68 C96 55 83 38 101 28 C115 20 105 8 93 2" stroke="#ffd36e" stroke-width="6.5"></path>
+  </g>
+
+  <!-- bright source glow -->
+  <g filter="url(#glow)">
+    <circle cx="64" cy="66" r="9" fill="#eaffff"></circle>
+    <circle cx="64" cy="66" r="16" fill="#67e8f9" opacity=".25"></circle>
+  </g>
+</svg>

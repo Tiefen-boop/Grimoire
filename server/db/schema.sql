@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS characters (
 
   -- Combat
   armor_class INTEGER NOT NULL DEFAULT 10,
+  armor_class_manual INTEGER NOT NULL DEFAULT 0,
   initiative_bonus INTEGER NOT NULL DEFAULT 0,
+  initiative_manual INTEGER NOT NULL DEFAULT 0,
   speed INTEGER NOT NULL DEFAULT 30,
   max_hp INTEGER NOT NULL DEFAULT 0,
   current_hp INTEGER NOT NULL DEFAULT 0,
@@ -93,6 +95,7 @@ CREATE TABLE IF NOT EXISTS characters (
   treasure TEXT NOT NULL DEFAULT '',
 
   -- Appearance
+  size TEXT NOT NULL DEFAULT 'Medium',
   age TEXT NOT NULL DEFAULT '',
   height TEXT NOT NULL DEFAULT '',
   weight TEXT NOT NULL DEFAULT '',

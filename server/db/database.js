@@ -5,31 +5,40 @@ require('dotenv').config()
 
 const dbPath = process.env.DB_PATH || './grimoire.db'
 const schemaPath = path.join(__dirname, 'schema.sql')
+const migrationsDir = path.join(__dirname, 'migrations')
 
 let db
+
+function runMigrations(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT NOT NULL PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  const applied = new Set(
+    db.prepare('SELECT name FROM schema_migrations').all().map(r => r.name)
+  )
+
+  const files = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.js'))
+    .sort()
+
+  for (const file of files) {
+    if (applied.has(file)) continue
+    const migration = require(path.join(migrationsDir, file))
+    migration(db)
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(file)
+    console.log(`[db] Applied migration: ${file}`)
+  }
+}
 
 function getDb() {
   if (!db) {
     db = new Database(dbPath)
-    const schema = fs.readFileSync(schemaPath, 'utf8')
-    db.exec(schema)
-    // Migrations: add columns that may not exist on older databases
-    const migrations = [
-      "ALTER TABLE characters ADD COLUMN features_list TEXT NOT NULL DEFAULT '[]'",
-      "ALTER TABLE characters ADD COLUMN unarmed_attack_modifier TEXT NOT NULL DEFAULT ''",
-      "ALTER TABLE characters ADD COLUMN unarmed_damage_roll TEXT NOT NULL DEFAULT ''",
-      "ALTER TABLE characters ADD COLUMN weapon_profs TEXT NOT NULL DEFAULT '[]'",
-      "ALTER TABLE characters ADD COLUMN armor_profs TEXT NOT NULL DEFAULT '[]'",
-      "ALTER TABLE characters ADD COLUMN tool_profs TEXT NOT NULL DEFAULT '[]'",
-      "ALTER TABLE characters ADD COLUMN languages TEXT NOT NULL DEFAULT '[]'",
-      "ALTER TABLE characters ADD COLUMN portrait TEXT NOT NULL DEFAULT ''",
-      "ALTER TABLE characters ADD COLUMN armor_class_manual INTEGER NOT NULL DEFAULT 0",
-      "ALTER TABLE characters ADD COLUMN initiative_manual INTEGER NOT NULL DEFAULT 0",
-      "ALTER TABLE characters ADD COLUMN size TEXT NOT NULL DEFAULT 'Medium'",
-    ]
-    for (const sql of migrations) {
-      try { db.exec(sql) } catch { /* column already exists */ }
-    }
+    db.exec(fs.readFileSync(schemaPath, 'utf8'))
+    runMigrations(db)
   }
   return db
 }

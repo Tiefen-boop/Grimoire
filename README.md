@@ -185,6 +185,11 @@ Players can change their own password at any time by clicking their username in 
 
 ## Updating
 
+> **Always back up before updating**, especially across major versions:
+> ```bash
+> npm run backup
+> ```
+
 After pulling new code:
 
 ```bash
@@ -192,17 +197,19 @@ npm install
 cd client && npm install && npm run build && cd ..
 ```
 
-- **Server-side changes** (anything in `server/`): restart the server.
-- **Client-side changes** (anything in `client/`): rebuild the frontend (`cd client && npm run build && cd ..`) — no server restart needed.
+Then restart the server:
 
-If running as a system service:
 ```bash
+# If running as a system service:
 systemctl --user restart grimoire
-```
-Otherwise:
-```bash
+
+# Otherwise:
 npm start
 ```
+
+**Database migrations run automatically on startup.** Any schema changes introduced by the new version are applied in order — you never need to touch the database manually.
+
+If only client-side files changed (`client/`), a server restart is not required — rebuilding the frontend is enough.
 
 ---
 

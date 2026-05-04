@@ -64,6 +64,26 @@ npm start
 
 Open `http://localhost:3000` (or your server's IP/domain) in a browser. Log in with the admin credentials you created.
 
+### 6. (Optional) Install as a system service
+
+To have the server start automatically on login, install it as a systemd user service:
+
+```bash
+bash setup-service.sh
+```
+
+This script detects your Node.js binary, writes the service file, and enables it. After this you no longer need to run `npm start` manually.
+
+Useful commands after setup:
+
+```bash
+systemctl --user status grimoire     # check if it's running
+systemctl --user restart grimoire    # restart after server-side code changes
+journalctl --user -u grimoire -f     # follow live logs
+```
+
+> **Note:** User services start on login, not on bare boot. This is fine for personal/LAN use. For an always-on server, see the Hosting Tips section.
+
 ---
 
 ## Running in Development
@@ -86,7 +106,7 @@ Then open `http://localhost:5173`.
 
 ## Admin CLI
 
-The CLI is the only way to manage admin-level users directly on the server.
+The CLI is the only way to manage admin-level users directly on the server. It can be run directly or via `npm run admin`.
 
 ```bash
 # Create an admin user
@@ -97,6 +117,12 @@ node server/cli.js list-users
 
 # Reset any user's password
 node server/cli.js reset-password -u <username> -p <newpassword>
+```
+
+For help on any command:
+```bash
+node server/cli.js --help
+node server/cli.js <command> --help
 ```
 
 ---
@@ -124,11 +150,15 @@ Admin accounts cannot be deleted from the web UI — use the CLI for admin manag
 
 Every user with the `player` role can be both a player in some campaigns and a DM in others simultaneously.
 
+Players can change their own password at any time by clicking their username in the navigation bar.
+
 ### Characters
 
 - Players create and own their characters. All data maps to the standard D&D 5e pen-and-paper sheet.
+- Characters are saved automatically after 1 second of inactivity — no need to manually save after every change.
 - Characters exist independently of campaigns. Any edits — whether made inside or outside a campaign — are reflected everywhere.
 - Only the owner (or a DM of a campaign the character belongs to) can view or edit a character.
+- Character data can be exported as JSON at any time using the **To JSON** button at the bottom of the character sheet.
 
 ### Campaigns
 
@@ -160,7 +190,46 @@ After pulling new code:
 ```bash
 npm install
 cd client && npm install && npm run build && cd ..
+```
+
+- **Server-side changes** (anything in `server/`): restart the server.
+- **Client-side changes** (anything in `client/`): rebuild the frontend (`cd client && npm run build && cd ..`) — no server restart needed.
+
+If running as a system service:
+```bash
+systemctl --user restart grimoire
+```
+Otherwise:
+```bash
 npm start
+```
+
+---
+
+## Backup & Restore
+
+Grimoire includes built-in backup and restore commands that export all data (users, characters, campaigns) to a compressed file.
+
+```bash
+# Create a backup (writes grimoire-backup-<timestamp>.json.gz to the project root)
+npm run backup
+
+# Create a backup to a specific path
+npm run backup -- --output /path/to/backup.json.gz
+
+# Restore from a backup (prompts for confirmation)
+npm run restore -- --file grimoire-backup-<timestamp>.json.gz
+
+# Restore without confirmation prompt
+npm run restore -- --file grimoire-backup-<timestamp>.json.gz --yes
+```
+
+> **Warning:** Restoring a backup will delete all existing data and replace it with the backup contents.
+
+For help on any command:
+```bash
+node server/cli.js backup --help
+node server/cli.js restore --help
 ```
 
 ---
@@ -169,20 +238,24 @@ npm start
 
 The database is a single SQLite file at the path set by `DB_PATH` in `.env` (default: `./grimoire.db`).
 
-**Backup:** Copy `grimoire.db` to a safe location. That file contains all users, characters, and campaigns.
+**Manual backup:** Copy `grimoire.db` to a safe location. That file contains all users, characters, and campaigns.
 
-**Restore:** Stop the server, replace `grimoire.db` with your backup, start the server again.
+**Manual restore:** Stop the server, replace `grimoire.db` with your backup, start the server again.
 
 ---
 
 ## Hosting Tips
 
 - **Reverse proxy:** Use Nginx or Caddy in front of the Node server to handle HTTPS and serve on port 80/443.
-- **Process manager:** Use [PM2](https://pm2.keymetrics.io/) to keep the server running and restart it on crashes:
+- **System service (Linux):** Run `bash setup-service.sh` to install a systemd user service that starts on login and restarts on crashes. See step 6 of First-Time Setup for details.
+- **Always-on (boot, no login required):** Enable systemd user lingering so the service starts at boot even without a logged-in session:
+  ```bash
+  sudo loginctl enable-linger $USER
+  ```
+- **Process manager (cross-platform alternative):** Use [PM2](https://pm2.keymetrics.io/):
   ```bash
   npm install -g pm2
   pm2 start server/index.js --name grimoire
-  pm2 save
-  pm2 startup
+  pm2 save && pm2 startup
   ```
 - **Port:** Change `PORT` in `.env` to run on a different port.

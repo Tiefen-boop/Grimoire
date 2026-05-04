@@ -82,7 +82,7 @@ systemctl --user restart grimoire    # restart after server-side code changes
 journalctl --user -u grimoire -f     # follow live logs
 ```
 
-> **Note:** User services start on login, not on bare boot. This is fine for personal/LAN use. For a always-on server, see the Hosting Tips section.
+> **Note:** User services start on login, not on bare boot. This is fine for personal/LAN use. For an always-on server, see the Hosting Tips section.
 
 ---
 
@@ -106,7 +106,7 @@ Then open `http://localhost:5173`.
 
 ## Admin CLI
 
-The CLI is the only way to manage admin-level users directly on the server.
+The CLI is the only way to manage admin-level users directly on the server. It can be run directly or via `npm run admin`.
 
 ```bash
 # Create an admin user
@@ -117,6 +117,12 @@ node server/cli.js list-users
 
 # Reset any user's password
 node server/cli.js reset-password -u <username> -p <newpassword>
+```
+
+For help on any command:
+```bash
+node server/cli.js --help
+node server/cli.js <command> --help
 ```
 
 ---
@@ -144,11 +150,15 @@ Admin accounts cannot be deleted from the web UI — use the CLI for admin manag
 
 Every user with the `player` role can be both a player in some campaigns and a DM in others simultaneously.
 
+Players can change their own password at any time by clicking their username in the navigation bar.
+
 ### Characters
 
 - Players create and own their characters. All data maps to the standard D&D 5e pen-and-paper sheet.
+- Characters are saved automatically after 1 second of inactivity — no need to manually save after every change.
 - Characters exist independently of campaigns. Any edits — whether made inside or outside a campaign — are reflected everywhere.
 - Only the owner (or a DM of a campaign the character belongs to) can view or edit a character.
+- Character data can be exported as JSON at any time using the **To JSON** button at the bottom of the character sheet.
 
 ### Campaigns
 
@@ -182,7 +192,10 @@ npm install
 cd client && npm install && npm run build && cd ..
 ```
 
-Then restart the server. If running as a system service:
+- **Server-side changes** (anything in `server/`): restart the server.
+- **Client-side changes** (anything in `client/`): rebuild the frontend (`cd client && npm run build && cd ..`) — no server restart needed.
+
+If running as a system service:
 ```bash
 systemctl --user restart grimoire
 ```

@@ -3495,7 +3495,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
       {/* JSON export */}
       {showJsonModal && (() => {
-        const json = JSON.stringify(watch(), null, 2)
+        const { owner_id, can_edit, updated_at, ...charData } = watch()
+        const json = JSON.stringify(charData, null, 2)
         return (
           <Modal open title="Character JSON" onCancel={() => setShowJsonModal(false)} cancelLabel="Close">
             <div className="flex justify-end mb-2">

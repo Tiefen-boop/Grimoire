@@ -12,6 +12,7 @@ client/dist/
 *.db
 *.db-shm
 *.db-wal
+grimoire-backup*.json.gz
 
 # Logs
 logs/

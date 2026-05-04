@@ -867,7 +867,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
   )
 }
 
-function SpellcastingBlock({ classIndex, castingAbility, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
+function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
   const { fields: spellFields, append: addSpell, remove: removeSpell, move: moveSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
   })
@@ -975,17 +975,26 @@ function SpellcastingBlock({ classIndex, castingAbility, control, register, watc
   return (
     <div>
       <div className="mb-5">
-        <div className="flex justify-around mb-2">
-          <div className="stat-box text-center min-w-24">
+        <div className="flex justify-around gap-2">
+          <div className={`stat-box text-center min-w-20 ${ABILITY_COLORS[castingAbility]?.border || 'border-stone-600'}`}>
+            <div className="label text-xs text-center">Ability</div>
+            <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS[castingAbility]?.text || 'text-stone-100'}`}>{ABILITY_SHORT[castingAbility] || '—'}</div>
+          </div>
+          <div className="stat-box text-center min-w-20">
             <div className="label text-xs text-center">Spell Save DC</div>
             <div className="text-2xl font-bold text-center text-stone-100 py-1">{saveDC}</div>
           </div>
-          <div className="stat-box text-center min-w-24">
+          <div className="stat-box text-center min-w-20">
             <div className="label text-xs text-center">Spell Attack</div>
             <div className="text-2xl font-bold text-center text-stone-100 py-1">{fmtMod(attackBonus)}</div>
           </div>
+          <div className="stat-box text-center min-w-20">
+            <div className="label text-xs text-center">Slot Recovery</div>
+            <div className={`text-sm font-bold text-center py-1 ${slotRecovery === 'short' ? 'text-sky-400' : 'text-amber-500'}`}>
+              {slotRecovery === 'short' ? 'Short Rest' : 'Long Rest'}
+            </div>
+          </div>
         </div>
-        <div className="text-center text-stone-500 text-xs">{ABILITY_SHORT[castingAbility]} · Prof +{watchedProfBonus}</div>
       </div>
 
       {/* Filters */}
@@ -2339,27 +2348,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
-                      <span className="text-stone-100 text-sm font-medium whitespace-nowrap">
-                        {cls.name || <span className="text-stone-500 italic">Unnamed class</span>}
-                        {cls.subclass && <span className="text-stone-400 font-normal"> / {cls.subclass}</span>}
-                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {cls.is_spellcaster && <SparklesIcon className="w-3.5 h-3.5 text-yellow-400 shrink-0" />}
+                        <span className="text-stone-100 text-sm font-medium whitespace-nowrap">
+                          {cls.name || <span className="text-stone-500 italic">Unnamed class</span>}
+                          {cls.subclass && <span className="text-stone-400 font-normal"> / {cls.subclass}</span>}
+                        </span>
+                        {cls.hit_die && <span className="text-xs text-stone-500 shrink-0">(HD: {cls.hit_die})</span>}
+                      </div>
                       <div className="flex items-center gap-1 ml-auto">
-                        {cls.is_spellcaster && cls.casting_ability && (
-                          <span className="flex items-center gap-0.5 text-xs text-yellow-400 shrink-0">
-                            <SparklesIcon className="w-3.5 h-3.5" />{ABILITY_SHORT[cls.casting_ability]}
-                            <span className={`ml-0.5 text-xs font-bold ${cls.slot_recovery === 'short' ? 'text-sky-400' : 'text-amber-500'}`}
-                              title={cls.slot_recovery === 'short' ? 'Short rest recovery' : 'Long rest recovery'}>
-                              {cls.slot_recovery === 'short' ? 'S' : 'L'}
-                            </span>
-                          </span>
-                        )}
                         {!readOnly && (
                           <button type="button" onClick={() => handleLevelUp(i)}
                             className="btn btn-secondary btn-sm py-0.5 px-2 text-xs shrink-0 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40">
                             Level Up!
                           </button>
                         )}
-                        {cls.hit_die && <span className="text-xs text-stone-500 shrink-0">{cls.hit_die}</span>}
                         {cls.level > 0 && <span className="text-xs bg-stone-700 text-stone-300 px-2 py-0.5 rounded shrink-0">Lv. {cls.level}</span>}
                         {!readOnly && (
                           <>
@@ -3369,6 +3372,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
+              slotRecovery={cls.slot_recovery}
               control={control}
               register={register}
               watch={watch}

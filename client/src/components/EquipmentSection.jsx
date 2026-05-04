@@ -77,6 +77,32 @@ const ARMOR_CATEGORIES = [
   { value: 'shield',  label: 'Shield' },
 ]
 
+const ARMOR_BY_NAME = {
+  'padded':          'light',
+  'leather':         'light',
+  'studded leather': 'light',
+  'hide':            'medium',
+  'chain shirt':     'medium',
+  'scale mail':      'medium',
+  'breastplate':     'medium',
+  'half plate':      'medium',
+  'ring mail':       'heavy',
+  'chain mail':      'heavy',
+  'splint':          'heavy',
+  'plate':           'heavy',
+  'shield':          'shield',
+}
+
+function detectArmorType(name) {
+  if (!name) return null
+  const lower = name.toLowerCase()
+  let best = null, bestLen = 0
+  for (const [aName, category] of Object.entries(ARMOR_BY_NAME)) {
+    if (lower.includes(aName) && aName.length > bestLen) { best = category; bestLen = aName.length }
+  }
+  return best
+}
+
 const WEAPON_PROPERTIES = [
   { name: 'Ammunition',  extraType: 'range', extraLabel: 'Range (e.g. 80/320)' },
   { name: 'Finesse',     extraType: null },
@@ -472,14 +498,18 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         <div className="flex gap-2 flex-wrap items-center">
                           <input {...register(`equipment.${i}.name`, {
                             onChange: e => {
-                              if (cat.type !== 'weapon') return
-                              setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                              const match = detectWeaponType(e.target.value)
-                              if (match) {
-                                setValue(`equipment.${i}.weapon_class`, match.weapon_class, { shouldDirty: true })
-                                setValue(`equipment.${i}.weapon_range`, match.weapon_range, { shouldDirty: true })
-                                setTimeout(() => setValue(`equipment.${i}.weapon_specific`, match.weapon_specific, { shouldDirty: true }), 0)
-                                autoFillAttack(i, match.weapon_range)
+                              if (cat.type === 'weapon') {
+                                setWeaponErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                                const match = detectWeaponType(e.target.value)
+                                if (match) {
+                                  setValue(`equipment.${i}.weapon_class`, match.weapon_class, { shouldDirty: true })
+                                  setValue(`equipment.${i}.weapon_range`, match.weapon_range, { shouldDirty: true })
+                                  setTimeout(() => setValue(`equipment.${i}.weapon_specific`, match.weapon_specific, { shouldDirty: true }), 0)
+                                  autoFillAttack(i, match.weapon_range)
+                                }
+                              } else if (cat.type === 'armor') {
+                                const category = detectArmorType(e.target.value)
+                                if (category) setValue(`equipment.${i}.armor_category`, category, { shouldDirty: true })
                               }
                             }
                           })} className="input flex-1 min-w-32"

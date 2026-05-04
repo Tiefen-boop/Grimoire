@@ -5,7 +5,9 @@
   "scripts": {
     "start": "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && node server/index.js",
     "dev": "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && nodemon server/index.js",
-    "admin": "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && node server/cli.js"
+    "admin":   "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && node server/cli.js",
+    "backup":  "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && node server/cli.js backup",
+    "restore": "unset npm_config_prefix && . ~/.nvm/nvm.sh && nvm use --silent && node server/cli.js restore"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

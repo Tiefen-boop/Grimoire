@@ -193,13 +193,41 @@ npm start
 
 ---
 
+## Backup & Restore
+
+Grimoire includes built-in backup and restore commands that export all data (users, characters, campaigns) to a compressed file.
+
+```bash
+# Create a backup (writes grimoire-backup-<timestamp>.json.gz to the project root)
+npm run backup
+
+# Create a backup to a specific path
+npm run backup -- --output /path/to/backup.json.gz
+
+# Restore from a backup (prompts for confirmation)
+npm run restore -- --file grimoire-backup-<timestamp>.json.gz
+
+# Restore without confirmation prompt
+npm run restore -- --file grimoire-backup-<timestamp>.json.gz --yes
+```
+
+> **Warning:** Restoring a backup will delete all existing data and replace it with the backup contents.
+
+For help on any command:
+```bash
+node server/cli.js backup --help
+node server/cli.js restore --help
+```
+
+---
+
 ## Data
 
 The database is a single SQLite file at the path set by `DB_PATH` in `.env` (default: `./grimoire.db`).
 
-**Backup:** Copy `grimoire.db` to a safe location. That file contains all users, characters, and campaigns.
+**Manual backup:** Copy `grimoire.db` to a safe location. That file contains all users, characters, and campaigns.
 
-**Restore:** Stop the server, replace `grimoire.db` with your backup, start the server again.
+**Manual restore:** Stop the server, replace `grimoire.db` with your backup, start the server again.
 
 ---
 

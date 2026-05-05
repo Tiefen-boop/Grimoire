@@ -31,10 +31,10 @@ const SKILLS = [
 const SPELL_SLOT_LABELS = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
 
 const INVENTORY_CATEGORIES = [
-  { type: 'weapon', label: 'Weapons',  headerBg: '#5b1a1a', headerText: '#fca5a5' },
-  { type: 'armor',  label: 'Armor',    headerBg: '#1e3050', headerText: '#93c5fd' },
-  { type: 'usable', label: 'Usables',  headerBg: '#14422a', headerText: '#86efac' },
-  { type: 'misc',   label: 'Misc',     headerBg: '#2a2520', headerText: '#d6d3d1' },
+  { type: 'weapon', label: 'Weapons', headerBg: '#5b1a1a', headerText: '#fca5a5' },
+  { type: 'armor',  label: 'Armor',   headerBg: '#1e3050', headerText: '#93c5fd' },
+  { type: 'usable', label: 'Usables', headerBg: '#14422a', headerText: '#86efac' },
+  { type: 'misc',   label: 'Misc',    headerBg: '#2a2520', headerText: '#d6d3d1' },
 ]
 
 const COIN = [
@@ -45,21 +45,28 @@ const COIN = [
   { key: 'platinum', label: 'PP', bg: '#4c1d95', text: '#ede9fe' },
 ]
 
+// Armor category → proficiency tag (matches CharacterSheet.jsx checkArmorProficiency)
+const ARMOR_PROF_MAP = { light: 'Light', medium: 'Medium', heavy: 'Heavy', shield: 'Shield' }
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function mod(score) { return Math.floor(((score ?? 10) - 10) / 2) }
 function fmtMod(n)  { return n >= 0 ? `+${n}` : `${n}` }
+
+function fmtAtk(val) {
+  const n = Number(val)
+  return !isNaN(n) && isFinite(n) && n > 0 ? `+${val}` : String(val)
+}
+
+function propLabel(p) {
+  return p.extra ? `${p.name} (${p.extra})` : p.name
+}
 
 function classLabel(c) {
   const parts = [c.name]
   if (c.subclass) parts.push(c.subclass)
   parts.push(`Lv.${c.level}`)
   return parts.join(' ')
-}
-
-function fmtAtk(val) {
-  const n = Number(val)
-  return !isNaN(n) && isFinite(n) && n > 0 ? `+${val}` : String(val)
 }
 
 // ── palette ───────────────────────────────────────────────────────────────────
@@ -85,7 +92,6 @@ const s = StyleSheet.create({
   row:         { flexDirection: 'row' },
   flex1:       { flex: 1 },
   vspacer:     { height: 5 },
-  divider:     { borderBottom: `0.5pt solid ${C.border}`, marginVertical: 3 },
 
   // header
   headerBox:   { flexDirection: 'row', borderBottom: `2pt solid ${C.borderDark}`, paddingBottom: 6, marginBottom: 6 },
@@ -120,7 +126,7 @@ const s = StyleSheet.create({
   listName:    { flex: 1, fontSize: 7, color: C.text },
   listVal:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.text, width: 22, textAlign: 'right' },
 
-  // attacks table
+  // table
   tblHeader:   { flexDirection: 'row', backgroundColor: C.subtle, paddingVertical: 2, paddingHorizontal: 3, borderBottom: `0.5pt solid ${C.border}` },
   tblRow:      { flexDirection: 'row', paddingVertical: 2, paddingHorizontal: 3, borderBottom: `0.5pt solid ${C.subtle}` },
   tblCell:     { fontSize: 7, color: C.text },
@@ -129,12 +135,15 @@ const s = StyleSheet.create({
   // text
   textBlock:   { fontSize: 7.5, color: C.text, lineHeight: 1.45 },
   fieldLabel:  { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: C.textMuted, marginBottom: 1.5, letterSpacing: 0.3 },
-  featureName: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.accent, marginBottom: 2 },
+  featureName: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.accent, marginBottom: 1 },
+  featureSource:{ fontSize: 6.5, color: C.textMuted, fontFamily: 'Helvetica-Oblique', marginBottom: 2 },
 
   // inventory
-  coinBox:     { alignItems: 'center', justifyContent: 'center', borderRadius: 3, paddingVertical: 5, paddingHorizontal: 8, marginRight: 4 },
+  coinRow:     { flexDirection: 'row', marginBottom: 10 },
+  coinBox:     { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 3, paddingVertical: 6, marginRight: 4 },
+  coinBoxLast: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 3, paddingVertical: 6 },
   coinLabel:   { fontSize: 7, fontFamily: 'Helvetica-Bold' },
-  coinValue:   { fontSize: 11, fontFamily: 'Helvetica-Bold' },
+  coinValue:   { fontSize: 12, fontFamily: 'Helvetica-Bold' },
   badge:       { borderRadius: 2, paddingHorizontal: 4, paddingVertical: 1.5, marginRight: 3, marginBottom: 2 },
   badgeText:   { fontSize: 6, fontFamily: 'Helvetica-Bold' },
   itemName:    { fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text },
@@ -164,7 +173,6 @@ function StatBox({ label, value, last }) {
   )
 }
 
-// View-based proficiency indicator (replaces Unicode bullet characters)
 function ProfCircle({ proficient, expert }) {
   const size = 8
   const r    = size / 2
@@ -213,6 +221,15 @@ function DeathSaves({ successes = 0, failures = 0 }) {
   )
 }
 
+function ChargesDisplay({ current, max, recharge }) {
+  const rec = recharge === 'short' ? 'Short Rest' : recharge === 'long' ? 'Long Rest' : recharge || null
+  return (
+    <Text style={[s.fieldLabel, { marginBottom: 2 }]}>
+      Charges: {current ?? 0}/{max ?? 0}{rec ? `  (${rec})` : ''}
+    </Text>
+  )
+}
+
 // ── Page 1: core stats ────────────────────────────────────────────────────────
 
 function CoreStatsPage({ d }) {
@@ -220,7 +237,8 @@ function CoreStatsPage({ d }) {
   const savingProfs = d.saving_throw_profs || []
   const skillProfs  = d.skill_profs || []
   const skillExp    = d.skill_expertise || []
-  const classes     = d.classes || []
+  const conditions  = d.conditions || []
+  const exhaustion  = d.exhaustion ?? 0
 
   const abilityMod = a => mod(d[a] ?? 10)
   const skillBonus = sk => {
@@ -238,12 +256,8 @@ function CoreStatsPage({ d }) {
     proficiency_bonus: prof,
   }
 
-  const weapons = (d.equipment || []).filter(e => e.type === 'weapon' && (e.attack_modifier || e.damage_roll))
-
-  const hitDiceDisplay = classes.length > 0
-    ? classes.map(c => `${c.level}d${c.hit_die}`).join(' + ')
-    : d.hit_dice || '—'
-
+  const classes  = d.classes || []
+  const weapons  = (d.equipment || []).filter(e => e.type === 'weapon' && (e.attack_modifier || e.damage_roll))
   const classLine = classes.length > 0
     ? classes.map(classLabel).join(' / ')
     : [d.class, d.subclass].filter(Boolean).join(' — ') || '—'
@@ -263,7 +277,6 @@ function CoreStatsPage({ d }) {
           <Text style={s.headerMeta}>
             XP: {d.experience_points ?? 0}
             {d.size && d.size !== 'Medium' ? `  ·  Size: ${d.size}` : ''}
-            {d.conditions?.length > 0 ? `  ·  Conditions: ${d.conditions.join(', ')}` : ''}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', justifyContent: 'flex-end' }}>
@@ -340,25 +353,31 @@ function CoreStatsPage({ d }) {
           <View style={[s.row, { marginBottom: 3 }]}>
             <View style={[s.box, s.flex1, { marginRight: 3 }]}>
               <Text style={s.boxLabel}>HIT DICE</Text>
-              <Text style={s.boxValueSm}>{hitDiceDisplay}</Text>
+              <Text style={s.boxValueSm}>{d.hit_dice || '—'}</Text>
               <Text style={[s.fieldLabel, { marginTop: 1, marginBottom: 0 }]}>Remaining: {d.hit_dice_remaining || '—'}</Text>
             </View>
             <DeathSaves successes={d.death_save_successes} failures={d.death_save_failures} />
           </View>
 
-          {classes.length > 0 && (
-            <>
-              <SectionHeader>Classes</SectionHeader>
-              {classes.map((c, i) => (
-                <View key={i} style={[s.listRow, { paddingLeft: 2 }]}>
-                  <Text style={[s.listName, { fontFamily: 'Helvetica-Bold' }]}>
-                    {c.name}{c.subclass ? ` (${c.subclass})` : ''}
-                  </Text>
-                  <Text style={s.listVal}>d{c.hit_die} · Lv.{c.level}</Text>
-                </View>
-              ))}
-              <View style={s.vspacer} />
-            </>
+          {/* Exhaustion */}
+          {exhaustion > 0 && (
+            <View style={[s.box, { marginBottom: 3 }]}>
+              <Text style={s.boxLabel}>EXHAUSTION</Text>
+              <View style={[s.row, { alignItems: 'center' }]}>
+                {[1,2,3,4,5,6].map(lvl => (
+                  <SmallCircle key={lvl} filled={lvl <= exhaustion} />
+                ))}
+                <Text style={[s.fieldLabel, { marginLeft: 4, marginBottom: 0 }]}>Level {exhaustion}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Conditions */}
+          {conditions.length > 0 && (
+            <View style={[s.box, { marginBottom: 3 }]}>
+              <Text style={s.boxLabel}>CONDITIONS</Text>
+              <Text style={s.boxValueSm}>{conditions.join(', ')}</Text>
+            </View>
           )}
         </View>
       </View>
@@ -378,16 +397,17 @@ function CoreStatsPage({ d }) {
           {weapons.map((w, i) => {
             const atkF = w.finesse_active && w.finesse_attack_modifier ? w.finesse_attack_modifier : w.attack_modifier
             const dmgF = w.finesse_active && w.finesse_damage_roll ? w.finesse_damage_roll : w.damage_roll
-            const atkV = atkF ? evalFormula(atkF, charStats) : '—'
+            const atkV = atkF ? fmtAtk(evalFormula(atkF, charStats)) : '—'
             const dmgV = dmgF ? evalFormula(dmgF, charStats) : '—'
+            const propsStr = (w.properties || []).map(propLabel).join(', ')
             return (
               <View key={i} style={[s.tblRow, i % 2 === 1 ? { backgroundColor: C.bgAlt } : {}]}>
                 <Text style={[s.tblCellBold, { flex: 2 }]}>{w.name || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{fmtAtk(atkV)}</Text>
-                <Text style={[s.tblCell, { flex: 1.5 }]}>{dmgV}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{w.weapon_specific || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{w.weapon_range || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 2 }]}>{(w.properties || []).map(p => p.name).join(', ') || '—'}</Text>
+                <Text style={[s.tblCell,     { flex: 1 }]}>{atkV}</Text>
+                <Text style={[s.tblCell,     { flex: 1.5 }]}>{dmgV}</Text>
+                <Text style={[s.tblCell,     { flex: 1 }]}>{w.weapon_specific || '—'}</Text>
+                <Text style={[s.tblCell,     { flex: 1 }]}>{w.weapon_range || '—'}</Text>
+                <Text style={[s.tblCell,     { flex: 2 }]}>{propsStr || '—'}</Text>
               </View>
             )
           })}
@@ -401,7 +421,7 @@ function CoreStatsPage({ d }) {
             <Text style={[s.tblCellBold, { flex: 2 }]}>Unarmed Strike</Text>
             <Text style={[s.tblCell, { flex: 1 }]}>{d.unarmed_attack_modifier ? fmtAtk(evalFormula(d.unarmed_attack_modifier, charStats)) : '—'}</Text>
             <Text style={[s.tblCell, { flex: 1.5 }]}>{d.unarmed_damage_roll ? evalFormula(d.unarmed_damage_roll, charStats) : '—'}</Text>
-            <Text style={[s.tblCell, { flex: 4 }]}></Text>
+            <Text style={[s.tblCell, { flex: 3.5 }]} />
           </View>
         </View>
       )}
@@ -409,35 +429,40 @@ function CoreStatsPage({ d }) {
   )
 }
 
-// ── Page 2: features (full width, no splits) ──────────────────────────────────
+// ── Page 2: features (full width, no mid-description splits) ──────────────────
 
 function FeaturesPage({ d }) {
   const featuresList = d.features_list || []
-  const wpProfs  = d.weapon_profs || []
-  const arProfs  = d.armor_profs  || []
-  const toolProfs= d.tool_profs   || []
-  const languages= d.languages    || []
+  const wpProfs   = d.weapon_profs || []
+  const arProfs   = d.armor_profs  || []
+  const toolProfs = d.tool_profs   || []
+  const languages = d.languages    || []
 
-  const hasFeatures = featuresList.length > 0 || d.features_and_traits || d.additional_features_and_traits
+  const hasFeatures    = featuresList.length > 0 || d.features_and_traits || d.additional_features_and_traits
   const hasPersonality = d.personality_traits || d.ideals || d.bonds || d.flaws
-  const hasProfs = wpProfs.length > 0 || arProfs.length > 0 || toolProfs.length > 0 || d.other_proficiencies
-  const hasBackstory = d.character_backstory || d.allies_and_organizations || d.treasure
+  const hasProfs       = wpProfs.length > 0 || arProfs.length > 0 || toolProfs.length > 0 || d.other_proficiencies
+  const hasBackstory   = d.character_backstory || d.allies_and_organizations || d.treasure
 
   return (
     <Page size="LETTER" style={s.page}>
 
-      {/* Features & Traits — each item is wrap={false} to prevent mid-description page splits */}
       {hasFeatures && (
         <>
           <SectionHeader>Features &amp; Traits</SectionHeader>
           {featuresList.map((f, i) => (
             <View key={i} wrap={false} style={s.itemBlock}>
-              <Text style={s.featureName}>{f.name}</Text>
+              <View style={[s.row, { alignItems: 'baseline', flexWrap: 'wrap', gap: 4, marginBottom: 1 }]}>
+                <Text style={s.featureName}>{f.name}</Text>
+                {f.source ? <Text style={s.featureSource}>{f.source}</Text> : null}
+              </View>
+              {f.has_charges ? (
+                <ChargesDisplay current={f.charges_current} max={f.charges_max} recharge={f.charges_recharge} />
+              ) : null}
               {f.description ? <Text style={s.textBlock}>{f.description}</Text> : null}
             </View>
           ))}
           {d.features_and_traits ? (
-            <View wrap={false} style={[s.itemBlock]}>
+            <View wrap={false} style={s.itemBlock}>
               <Text style={s.textBlock}>{d.features_and_traits}</Text>
             </View>
           ) : null}
@@ -448,13 +473,12 @@ function FeaturesPage({ d }) {
         <>
           <View style={s.vspacer} />
           <SectionHeader>Additional Features</SectionHeader>
-          <View wrap={false}>
+          <View wrap={false} style={s.itemBlock}>
             <Text style={s.textBlock}>{d.additional_features_and_traits}</Text>
           </View>
         </>
       ) : null}
 
-      {/* Personality */}
       {hasPersonality && (
         <>
           <View style={s.vspacer} />
@@ -473,14 +497,13 @@ function FeaturesPage({ d }) {
         </>
       )}
 
-      {/* Proficiencies & Languages */}
       {(hasProfs || languages.length > 0) && (
         <>
           <View style={s.vspacer} />
           <SectionHeader>Proficiencies &amp; Languages</SectionHeader>
           <View wrap={false} style={{ paddingVertical: 4 }}>
-            {wpProfs.length > 0  && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Weapons: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{wpProfs.join(', ')}</Text></Text>}
-            {arProfs.length > 0  && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Armor: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{arProfs.join(', ')}</Text></Text>}
+            {wpProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Weapons: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{wpProfs.join(', ')}</Text></Text>}
+            {arProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Armor: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{arProfs.join(', ')}</Text></Text>}
             {toolProfs.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Tools: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{toolProfs.join(', ')}</Text></Text>}
             {languages.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Languages: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{languages.join(', ')}</Text></Text>}
             {d.other_proficiencies ? <Text style={s.textBlock}>{d.other_proficiencies}</Text> : null}
@@ -488,15 +511,12 @@ function FeaturesPage({ d }) {
         </>
       )}
 
-      {/* Backstory */}
       {hasBackstory && (
         <>
           <View style={s.vspacer} />
           <SectionHeader>Backstory</SectionHeader>
           {d.character_backstory ? (
-            <View wrap={false} style={s.itemBlock}>
-              <Text style={s.textBlock}>{d.character_backstory}</Text>
-            </View>
+            <View wrap={false} style={s.itemBlock}><Text style={s.textBlock}>{d.character_backstory}</Text></View>
           ) : null}
           {d.allies_and_organizations ? (
             <View wrap={false} style={s.itemBlock}>
@@ -513,7 +533,6 @@ function FeaturesPage({ d }) {
         </>
       )}
 
-      {/* Appearance */}
       {(d.age || d.height || d.weight || d.eyes || d.skin || d.hair || d.appearance_notes) && (
         <>
           <View style={s.vspacer} />
@@ -556,15 +575,16 @@ function InventoryPage({ d }) {
   const wpProfs = (d.weapon_profs || []).map(p => p.toLowerCase())
   const arProfs = d.armor_profs || []
 
-  const armorProfMap = { light: 'Light Armor', medium: 'Medium Armor', heavy: 'Heavy Armor', shield: 'Shield' }
-
   function isWeaponProficient(item) {
-    return wpProfs.includes(item.weapon_class) ||
+    return wpProfs.includes((item.weapon_class || '').toLowerCase()) ||
            (item.weapon_specific && wpProfs.includes(item.weapon_specific.toLowerCase()))
   }
-
   function weaponStats(item) {
     return isWeaponProficient(item) ? charStats : { ...charStats, proficiency_bonus: 0 }
+  }
+  function isArmorProficient(item) {
+    const tag = ARMOR_PROF_MAP[item.armor_category]
+    return !tag || arProfs.includes(tag)
   }
 
   if (equipment.length === 0) return null
@@ -573,17 +593,15 @@ function InventoryPage({ d }) {
     <Page size="LETTER" style={s.page}>
       <SectionHeader>Inventory</SectionHeader>
 
-      {/* Currency */}
-      {COIN.some(c => d[c.key]) && (
-        <View style={[s.row, { marginBottom: 10, flexWrap: 'wrap' }]}>
-          {COIN.filter(c => d[c.key]).map(c => (
-            <View key={c.key} style={[s.coinBox, { backgroundColor: c.bg }]}>
-              <Text style={[s.coinValue, { color: c.text }]}>{d[c.key]}</Text>
-              <Text style={[s.coinLabel, { color: c.text }]}>{c.label}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+      {/* Currency — all 5 always shown, full width */}
+      <View style={s.coinRow}>
+        {COIN.map((c, idx) => (
+          <View key={c.key} style={[idx === COIN.length - 1 ? s.coinBoxLast : s.coinBox, { backgroundColor: c.bg }]}>
+            <Text style={[s.coinValue, { color: c.text }]}>{d[c.key] ?? 0}</Text>
+            <Text style={[s.coinLabel, { color: c.text }]}>{c.label}</Text>
+          </View>
+        ))}
+      </View>
 
       {/* Items by category */}
       {INVENTORY_CATEGORIES.map(cat => {
@@ -592,46 +610,39 @@ function InventoryPage({ d }) {
         return (
           <View key={cat.type}>
             <CategoryHeader label={cat.label} headerBg={cat.headerBg} headerText={cat.headerText} />
-
             {items.map((item, i) => {
-              const attuned = item.attuned
               const atkF = item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier
               const dmgF = item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll
-              const versP = (item.properties || []).find(p => p.name === 'Versatile')
-              const versDmg = item.versatile_damage_roll || versP?.extra
-              const effectiveDmg = item.versatile_active && versDmg ? versDmg : dmgF
-              const atkV = atkF ? fmtAtk(evalFormula(atkF, weaponStats(item))) : null
-              const dmgV = effectiveDmg ? evalFormula(effectiveDmg, charStats) : null
+              const versP    = (item.properties || []).find(p => p.name === 'Versatile')
+              const versDmg  = item.versatile_damage_roll || versP?.extra
+              const effDmg   = item.versatile_active && versDmg ? versDmg : dmgF
+              const atkV     = atkF ? fmtAtk(evalFormula(atkF, weaponStats(item))) : null
+              const dmgV     = effDmg ? evalFormula(effDmg, charStats) : null
+              const propsStr = (item.properties || []).map(propLabel).join(', ')
               const notProfWeapon = cat.type === 'weapon' && item.weapon_class && !isWeaponProficient(item)
-              const notProfArmor  = cat.type === 'armor'  && item.armor_category && !arProfs.includes(armorProfMap[item.armor_category] || '')
-              const props = (item.properties || []).map(p => p.name).join(', ')
+              const notProfArmor  = cat.type === 'armor'  && item.armor_category && !isArmorProficient(item)
 
               return (
                 <View key={i} wrap={false} style={s.itemBlock}>
-                  {/* Item name row */}
+                  {/* Name + badges */}
                   <View style={[s.row, { alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }]}>
                     <Text style={s.itemName}>
-                      {item.amount && item.amount !== '1' ? `×${item.amount}  ` : ''}{item.name || '—'}
+                      {item.amount && item.amount !== '1' ? `x${item.amount}  ` : ''}{item.name || '—'}
                     </Text>
-                    {attuned && (
+                    {item.attuned && (
                       <View style={[s.badge, { backgroundColor: '#4c1d95', marginLeft: 5 }]}>
                         <Text style={[s.badgeText, { color: '#ede9fe' }]}>Attuned</Text>
                       </View>
                     )}
-                    {notProfWeapon && (
-                      <View style={[s.badge, { backgroundColor: '#7f1d1d', marginLeft: 5 }]}>
-                        <Text style={[s.badgeText, { color: '#fca5a5' }]}>Not Proficient</Text>
-                      </View>
-                    )}
-                    {notProfArmor && (
+                    {(notProfWeapon || notProfArmor) && (
                       <View style={[s.badge, { backgroundColor: '#7f1d1d', marginLeft: 5 }]}>
                         <Text style={[s.badgeText, { color: '#fca5a5' }]}>Not Proficient</Text>
                       </View>
                     )}
                   </View>
 
-                  {/* Weapon stats row */}
-                  {cat.type === 'weapon' && (item.weapon_class || item.weapon_specific || atkV || dmgV) && (
+                  {/* Weapon stats */}
+                  {cat.type === 'weapon' && (item.weapon_class || atkV || dmgV) && (
                     <View style={[s.row, { flexWrap: 'wrap', alignItems: 'center', marginBottom: 3 }]}>
                       {item.weapon_class && (
                         <View style={[s.badge, { backgroundColor: '#3b1a1a', borderWidth: 1, borderStyle: 'solid', borderColor: '#7f1d1d' }]}>
@@ -647,11 +658,11 @@ function InventoryPage({ d }) {
                       )}
                       {atkV && <Text style={[s.tblCell, { marginRight: 8 }]}>Atk: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{atkV}</Text></Text>}
                       {dmgV && <Text style={[s.tblCell, { marginRight: 8 }]}>Dmg: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{dmgV}</Text></Text>}
-                      {props && <Text style={[s.tblCell, { color: C.textMuted }]}>{props}</Text>}
+                      {propsStr && <Text style={[s.tblCell, { color: C.textMuted }]}>{propsStr}</Text>}
                     </View>
                   )}
 
-                  {/* Armor stats row */}
+                  {/* Armor stats */}
                   {cat.type === 'armor' && (item.armor_category || item.ac_formula) && (
                     <View style={[s.row, { flexWrap: 'wrap', alignItems: 'center', marginBottom: 3 }]}>
                       {item.armor_category && (
@@ -668,10 +679,7 @@ function InventoryPage({ d }) {
 
                   {/* Charges */}
                   {item.has_charges && (
-                    <Text style={[s.fieldLabel, { marginBottom: 3 }]}>
-                      Charges: {item.charges_current ?? 0}/{item.charges_max ?? 0}
-                      {item.charges_recharge === 'short' ? '  (Short Rest)' : item.charges_recharge === 'long' ? '  (Long Rest)' : ''}
-                    </Text>
+                    <ChargesDisplay current={item.charges_current} max={item.charges_max} recharge={item.charges_recharge} />
                   )}
 
                   {/* Price / Weight */}
@@ -693,15 +701,17 @@ function InventoryPage({ d }) {
   )
 }
 
-// ── Page 4: spellcasting ──────────────────────────────────────────────────────
+// ── Page 4+: spellcasting — one page per caster class ─────────────────────────
 
-function SpellcastingPage({ d }) {
-  const spells        = d.spells || []
-  const slots         = d.spell_slots || {}
-  const classes       = d.classes || []
-  const casterClasses = classes.filter(c => c.spellcasting_ability)
+function SpellcastingPage({ d, cls }) {
+  const spells  = cls.spells || []
+  const slots   = cls.spell_slots || {}
+  const prof    = d.proficiency_bonus ?? 2
 
-  if (spells.length === 0 && casterClasses.length === 0) return null
+  const abilityIdx  = ABILITIES.indexOf(cls.casting_ability)
+  const abilityMod  = abilityIdx >= 0 ? mod(d[ABILITIES[abilityIdx]] ?? 10) : 0
+  const saveDC      = 8 + prof + abilityMod
+  const attackBonus = prof + abilityMod
 
   const spellsByLevel = {}
   for (const sp of spells) {
@@ -710,40 +720,42 @@ function SpellcastingPage({ d }) {
     spellsByLevel[lvl].push(sp)
   }
 
+  const className = [cls.name, cls.subclass].filter(Boolean).join(' — ')
+
   return (
     <Page size="LETTER" style={s.page}>
-      <SectionHeader>Spellcasting</SectionHeader>
+      <SectionHeader>{className} — Spellcasting</SectionHeader>
 
-      {casterClasses.map((c, i) => (
-        <View key={i} style={[s.row, { marginBottom: 6, flexWrap: 'wrap', gap: 4 }]}>
-          <View style={s.box}>
-            <Text style={s.boxLabel}>{(c.name || '').toUpperCase()} ABILITY</Text>
-            <Text style={s.boxValueSm}>{(c.spellcasting_ability || '—').toUpperCase()}</Text>
-          </View>
-          <View style={s.box}>
-            <Text style={s.boxLabel}>SAVE DC</Text>
-            <Text style={s.boxValueSm}>{d.spell_save_dc ?? '—'}</Text>
-          </View>
-          <View style={s.box}>
-            <Text style={s.boxLabel}>SPELL ATTACK</Text>
-            <Text style={s.boxValueSm}>{d.spell_attack_bonus != null ? fmtMod(d.spell_attack_bonus) : '—'}</Text>
-          </View>
-          <View style={s.box}>
-            <Text style={s.boxLabel}>SLOT RECOVERY</Text>
-            <Text style={s.boxValueSm}>{c.slot_recovery === 'short' ? 'Short Rest' : c.slot_recovery === 'long' ? 'Long Rest' : '—'}</Text>
-          </View>
+      {/* Spellcasting stats */}
+      <View style={[s.row, { marginBottom: 8, flexWrap: 'wrap', gap: 4 }]}>
+        <View style={s.box}>
+          <Text style={s.boxLabel}>SPELLCASTING ABILITY</Text>
+          <Text style={s.boxValueSm}>{(cls.casting_ability || '—').toUpperCase()}</Text>
         </View>
-      ))}
+        <View style={s.box}>
+          <Text style={s.boxLabel}>SPELL SAVE DC</Text>
+          <Text style={s.boxValueSm}>{saveDC}</Text>
+        </View>
+        <View style={s.box}>
+          <Text style={s.boxLabel}>SPELL ATTACK BONUS</Text>
+          <Text style={s.boxValueSm}>{fmtMod(attackBonus)}</Text>
+        </View>
+        <View style={s.box}>
+          <Text style={s.boxLabel}>SLOT RECOVERY</Text>
+          <Text style={s.boxValueSm}>{cls.slot_recovery === 'short' ? 'Short Rest' : 'Long Rest'}</Text>
+        </View>
+      </View>
 
+      {/* Spell slots */}
       {Object.keys(slots).length > 0 && (
         <View style={{ marginBottom: 8 }}>
           <Text style={[s.fieldLabel, { marginBottom: 3 }]}>SPELL SLOTS</Text>
-          <View style={s.row}>
+          <View style={[s.row, { flexWrap: 'wrap', gap: 4 }]}>
             {[1,2,3,4,5,6,7,8,9].map(lvl => {
               const slot = slots[lvl]
               if (!slot) return null
               return (
-                <View key={lvl} style={[s.box, { marginRight: 4, alignItems: 'center', minWidth: 36 }]}>
+                <View key={lvl} style={[s.box, { alignItems: 'center', minWidth: 38, marginBottom: 0 }]}>
                   <Text style={s.boxLabel}>{SPELL_SLOT_LABELS[lvl]}</Text>
                   <Text style={s.boxValueSm}>{slot.used ?? 0}/{slot.total ?? 0}</Text>
                 </View>
@@ -753,14 +765,15 @@ function SpellcastingPage({ d }) {
         </View>
       )}
 
-      {Object.entries(spellsByLevel).sort(([a],[b]) => Number(a)-Number(b)).map(([lvl, lvlSpells]) => (
+      {/* Spells by level */}
+      {Object.entries(spellsByLevel).sort(([a],[b]) => Number(a) - Number(b)).map(([lvl, lvlSpells]) => (
         <View key={lvl} style={{ marginBottom: 6 }}>
-          <SectionHeader style={{ fontSize: 6.5 }}>
+          <SectionHeader>
             {lvl === '0' ? 'Cantrips' : `${SPELL_SLOT_LABELS[Number(lvl)]} Level Spells`}
           </SectionHeader>
           <View style={s.tblHeader}>
             <Text style={[s.tblCellBold, { flex: 2 }]}>Name</Text>
-            <Text style={[s.tblCellBold, { width: 16, textAlign: 'center' }]}>Prep</Text>
+            <Text style={[s.tblCellBold, { width: 20, textAlign: 'center' }]}>Prep</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>School</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>Cast Time</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>Range</Text>
@@ -771,14 +784,14 @@ function SpellcastingPage({ d }) {
             <View key={i} wrap={false}>
               <View style={[s.tblRow, i % 2 === 1 ? { backgroundColor: C.bgAlt } : {}]}>
                 <Text style={[s.tblCellBold, { flex: 2 }]}>{sp.name}</Text>
-                <View style={{ width: 16, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 20, alignItems: 'center', justifyContent: 'center' }}>
                   <SmallCircle filled={!!sp.prepared} />
                 </View>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.school || '—'}</Text>
+                <Text style={[s.tblCell, { flex: 1 }]}>{sp.school    || '—'}</Text>
                 <Text style={[s.tblCell, { flex: 1 }]}>{sp.cast_time || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.range || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.duration || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.components || '—'}</Text>
+                <Text style={[s.tblCell, { flex: 1 }]}>{sp.range     || '—'}</Text>
+                <Text style={[s.tblCell, { flex: 1 }]}>{sp.duration  || '—'}</Text>
+                <Text style={[s.tblCell, { flex: 1 }]}>{sp.components|| '—'}</Text>
               </View>
               {sp.description ? (
                 <View style={{ paddingHorizontal: 4, paddingVertical: 2, backgroundColor: C.bgAlt }}>
@@ -796,14 +809,17 @@ function SpellcastingPage({ d }) {
 // ── Document ──────────────────────────────────────────────────────────────────
 
 export default function CharacterPDF({ data }) {
-  const hasInventory = (data.equipment || []).length > 0
-  const hasSpells    = (data.spells?.length > 0) || (data.classes || []).some(c => c.spellcasting_ability)
+  const equipment     = data.equipment || []
+  const casterClasses = (data.classes || []).filter(c => c.is_spellcaster)
+
   return (
     <Document title={data.name || 'Character Sheet'} author="Grimoire">
-      <CoreStatsPage  d={data} />
-      <FeaturesPage   d={data} />
-      {hasInventory && <InventoryPage d={data} />}
-      {hasSpells    && <SpellcastingPage d={data} />}
+      <CoreStatsPage d={data} />
+      <FeaturesPage  d={data} />
+      {equipment.length > 0 && <InventoryPage d={data} />}
+      {casterClasses.map((cls, i) => (
+        <SpellcastingPage key={i} d={data} cls={cls} />
+      ))}
     </Document>
   )
 }

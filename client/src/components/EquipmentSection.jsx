@@ -278,6 +278,17 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     proficiency_bonus: watch('proficiency_bonus'),
   }
 
+  function isWeaponProficient(item) {
+    const lower = weaponProfs.map(p => p.toLowerCase())
+    return lower.includes(item.weapon_class) ||
+           (item.weapon_specific && lower.includes(item.weapon_specific.toLowerCase()))
+  }
+
+  function weaponStats(item) {
+    if (isWeaponProficient(item)) return charStats
+    return { ...charStats, proficiency_bonus: 0 }
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   function toggleExpand(fid) {
@@ -808,7 +819,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           ) && (
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ml-5 mt-1 text-xs text-stone-400">
                               {cat.type === 'weapon' && item.attack_modifier && (
-                                <span><span className="text-stone-500">Att:</span> {fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats))}</span>
+                                <span><span className="text-stone-500">Att:</span> {fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, weaponStats(item)))}</span>
                               )}
                               {cat.type === 'weapon' && item.damage_roll && (() => {
                                 const versatileProp = (item.properties || []).find(p => p.name === 'Versatile')
@@ -853,7 +864,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </span>
                                   )}
                                   {item.attack_modifier && (
-                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, charStats))}</span></span>
+                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, weaponStats(item)))}</span></span>
                                   )}
                                   {item.damage_roll && (() => {
                                     const versatileProp = props.find(p => p.name === 'Versatile')

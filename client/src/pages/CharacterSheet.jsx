@@ -1523,6 +1523,7 @@ export default function CharacterSheet() {
   const [saveErrorModal, setSaveErrorModal] = useState(null)
   const [showJsonModal,  setShowJsonModal]  = useState(false)
   const [jsonCopied,     setJsonCopied]     = useState(false)
+  const [pdfGenerating,  setPdfGenerating]  = useState(false)
   const [campaignChars, setCampaignChars] = useState([])
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
@@ -2087,6 +2088,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       setValue(fieldName, current.filter(v => v !== value), { shouldDirty: true })
     } else {
       setValue(fieldName, [...current, value], { shouldDirty: true })
+    }
+  }
+
+  async function handleDownloadPDF() {
+    setPdfGenerating(true)
+    try {
+      const [{ pdf }, { default: CharacterPDF }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('../components/CharacterPDF'),
+      ])
+      const blob = await pdf(<CharacterPDF data={watch()} />).toBlob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${watch('name') || 'character'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setPdfGenerating(false)
     }
   }
 
@@ -3493,6 +3513,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
       </Modal>
 
+      {/* PDF export handler (no modal needed — triggers download directly) */}
+      {/* Button below calls handleDownloadPDF */}
+
       {/* JSON export */}
       {showJsonModal && (() => {
         const { owner_id, can_edit, updated_at, ...charData } = watch()
@@ -3607,6 +3630,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       {/* Save button at bottom too */}
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         {error && <span className="text-red-400 text-sm self-center">{error}</span>}
+        <button type="button" onClick={handleDownloadPDF} disabled={pdfGenerating}
+          className="btn btn-secondary">
+          {pdfGenerating ? 'Generating…' : 'To PDF'}
+        </button>
         <button type="button" onClick={() => { setJsonCopied(false); setShowJsonModal(true) }}
           className="btn btn-secondary">
           To JSON

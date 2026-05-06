@@ -62,6 +62,14 @@ function propLabel(p) {
   return p.extra ? `${p.name} (${p.extra})` : p.name
 }
 
+function spellComponents(sp) {
+  const parts = [sp.comp_v && 'V', sp.comp_s && 'S', sp.comp_m && 'M'].filter(Boolean)
+  if (parts.length === 0) return '—'
+  let result = parts.join(', ')
+  if (sp.comp_m && sp.comp_m_text) result += ` (${sp.comp_m_text})`
+  return result
+}
+
 function classLabel(c) {
   const parts = [c.name]
   if (c.subclass) parts.push(c.subclass)
@@ -359,26 +367,24 @@ function CoreStatsPage({ d }) {
             <DeathSaves successes={d.death_save_successes} failures={d.death_save_failures} />
           </View>
 
-          {/* Exhaustion */}
-          {exhaustion > 0 && (
-            <View style={[s.box, { marginBottom: 3 }]}>
-              <Text style={s.boxLabel}>EXHAUSTION</Text>
-              <View style={[s.row, { alignItems: 'center' }]}>
-                {[1,2,3,4,5,6].map(lvl => (
-                  <SmallCircle key={lvl} filled={lvl <= exhaustion} />
-                ))}
+          {/* Exhaustion — always shown */}
+          <View style={[s.box, { marginBottom: 3 }]}>
+            <Text style={s.boxLabel}>EXHAUSTION</Text>
+            <View style={[s.row, { alignItems: 'center' }]}>
+              {[1,2,3,4,5,6].map(lvl => (
+                <SmallCircle key={lvl} filled={lvl <= exhaustion} />
+              ))}
+              {exhaustion > 0 && (
                 <Text style={[s.fieldLabel, { marginLeft: 4, marginBottom: 0 }]}>Level {exhaustion}</Text>
-              </View>
+              )}
             </View>
-          )}
+          </View>
 
-          {/* Conditions */}
-          {conditions.length > 0 && (
-            <View style={[s.box, { marginBottom: 3 }]}>
-              <Text style={s.boxLabel}>CONDITIONS</Text>
-              <Text style={s.boxValueSm}>{conditions.join(', ')}</Text>
-            </View>
-          )}
+          {/* Conditions — always shown */}
+          <View style={[s.box, { marginBottom: 3 }]}>
+            <Text style={s.boxLabel}>CONDITIONS</Text>
+            <Text style={s.boxValueSm}>{conditions.length > 0 ? conditions.join(', ') : '—'}</Text>
+          </View>
         </View>
       </View>
 
@@ -726,24 +732,19 @@ function SpellcastingPage({ d, cls }) {
     <Page size="LETTER" style={s.page}>
       <SectionHeader>{className} — Spellcasting</SectionHeader>
 
-      {/* Spellcasting stats */}
-      <View style={[s.row, { marginBottom: 8, flexWrap: 'wrap', gap: 4 }]}>
-        <View style={s.box}>
-          <Text style={s.boxLabel}>SPELLCASTING ABILITY</Text>
-          <Text style={s.boxValueSm}>{(cls.casting_ability || '—').toUpperCase()}</Text>
-        </View>
-        <View style={s.box}>
-          <Text style={s.boxLabel}>SPELL SAVE DC</Text>
-          <Text style={s.boxValueSm}>{saveDC}</Text>
-        </View>
-        <View style={s.box}>
-          <Text style={s.boxLabel}>SPELL ATTACK BONUS</Text>
-          <Text style={s.boxValueSm}>{fmtMod(attackBonus)}</Text>
-        </View>
-        <View style={s.box}>
-          <Text style={s.boxLabel}>SLOT RECOVERY</Text>
-          <Text style={s.boxValueSm}>{cls.slot_recovery === 'short' ? 'Short Rest' : 'Long Rest'}</Text>
-        </View>
+      {/* Spellcasting stats — full width, equal quarters */}
+      <View style={[s.row, { marginBottom: 8 }]}>
+        {[
+          { label: 'ABILITY',       value: (cls.casting_ability || '—').toUpperCase() },
+          { label: 'SPELL SAVE DC', value: String(saveDC) },
+          { label: 'ATK BONUS',     value: fmtMod(attackBonus) },
+          { label: 'SLOT RECOVERY', value: cls.slot_recovery === 'short' ? 'Short Rest' : 'Long Rest' },
+        ].map((item, idx, arr) => (
+          <View key={item.label} style={[s.box, { flex: 1, alignItems: 'center', marginRight: idx < arr.length - 1 ? 4 : 0, marginBottom: 0 }]}>
+            <Text style={s.boxLabel}>{item.label}</Text>
+            <Text style={[s.boxValue, { fontSize: 13 }]}>{item.value}</Text>
+          </View>
+        ))}
       </View>
 
       {/* Spell slots */}
@@ -757,7 +758,7 @@ function SpellcastingPage({ d, cls }) {
               return (
                 <View key={lvl} style={[s.box, { alignItems: 'center', minWidth: 38, marginBottom: 0 }]}>
                   <Text style={s.boxLabel}>{SPELL_SLOT_LABELS[lvl]}</Text>
-                  <Text style={s.boxValueSm}>{slot.used ?? 0}/{slot.total ?? 0}</Text>
+                  <Text style={s.boxValueSm}>{slot.left ?? 0}/{slot.max ?? 0}</Text>
                 </View>
               )
             })}
@@ -772,34 +773,45 @@ function SpellcastingPage({ d, cls }) {
             {lvl === '0' ? 'Cantrips' : `${SPELL_SLOT_LABELS[Number(lvl)]} Level Spells`}
           </SectionHeader>
           <View style={s.tblHeader}>
-            <Text style={[s.tblCellBold, { flex: 2 }]}>Name</Text>
             <Text style={[s.tblCellBold, { width: 20, textAlign: 'center' }]}>Prep</Text>
+            <Text style={[s.tblCellBold, { flex: 2 }]}>Name</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>School</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>Cast Time</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>Range</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>Duration</Text>
             <Text style={[s.tblCellBold, { flex: 1 }]}>Components</Text>
           </View>
-          {lvlSpells.map((sp, i) => (
-            <View key={i} wrap={false}>
-              <View style={[s.tblRow, i % 2 === 1 ? { backgroundColor: C.bgAlt } : {}]}>
-                <Text style={[s.tblCellBold, { flex: 2 }]}>{sp.name}</Text>
-                <View style={{ width: 20, alignItems: 'center', justifyContent: 'center' }}>
-                  <SmallCircle filled={!!sp.prepared} />
+          {lvlSpells.map((sp, i) => {
+            const rowBg = i % 2 === 1 ? C.bgAlt : C.bg
+            return (
+              <View key={i} wrap={false}>
+                <View style={[s.tblRow, { backgroundColor: rowBg }]}>
+                  <View style={{ width: 20, alignItems: 'center', justifyContent: 'center' }}>
+                    <SmallCircle filled={!!sp.prepared} />
+                  </View>
+                  {/* Name + concentration badge */}
+                  <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={s.tblCellBold}>{sp.name}</Text>
+                    {sp.concentration && (
+                      <View style={{ marginLeft: 3, backgroundColor: '#4c1d95', borderRadius: 2, paddingHorizontal: 3, paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 5, color: '#ede9fe', fontFamily: 'Helvetica-Bold' }}>CONC</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[s.tblCell, { flex: 1 }]}>{sp.school    || '—'}</Text>
+                  <Text style={[s.tblCell, { flex: 1 }]}>{sp.cast_time || '—'}</Text>
+                  <Text style={[s.tblCell, { flex: 1 }]}>{sp.range     || '—'}</Text>
+                  <Text style={[s.tblCell, { flex: 1 }]}>{sp.duration  || '—'}</Text>
+                  <Text style={[s.tblCell, { flex: 1 }]}>{spellComponents(sp)}</Text>
                 </View>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.school    || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.cast_time || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.range     || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.duration  || '—'}</Text>
-                <Text style={[s.tblCell, { flex: 1 }]}>{sp.components|| '—'}</Text>
+                {sp.description ? (
+                  <View style={{ paddingLeft: 23, paddingRight: 4, paddingVertical: 2, backgroundColor: rowBg }}>
+                    <Text style={[s.textBlock, { fontSize: 7 }]}>{sp.description}</Text>
+                  </View>
+                ) : null}
               </View>
-              {sp.description ? (
-                <View style={{ paddingHorizontal: 4, paddingVertical: 2, backgroundColor: C.bgAlt }}>
-                  <Text style={[s.textBlock, { fontSize: 7 }]}>{sp.description}</Text>
-                </View>
-              ) : null}
-            </View>
-          ))}
+            )
+          })}
         </View>
       ))}
     </Page>

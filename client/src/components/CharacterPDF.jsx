@@ -79,23 +79,27 @@ function isRTL(str) {
 }
 function DirText({ style, children, ...rest }) {
   const text = typeof children === 'string' ? children : ''
-  const rtl = isRTL(text)
   const styleArr = Array.isArray(style) ? style : [style]
-  if (!rtl) return <Text style={styleArr} {...rest}>{children}</Text>
-  // Split on newlines so each <Text direction='rtl'> is a single paragraph.
-  // react-pdf's Ã artifact only triggers when it wraps a long RTL line;
-  // short paragraphs fit on one line and render cleanly.
+  // Split on blank lines — detect RTL per paragraph independently.
+  // Within each paragraph split on \n so each Text is one line, avoiding
+  // react-pdf's RTL line-break artifact (fires when it wraps a long RTL Text).
+  const paragraphs = text.split(/\n\n+/)
   return (
     <View>
-      {text.split('\n').map((line, i) => (
-        <Text key={i} style={[...styleArr, { direction: 'rtl', textAlign: 'right' }]} {...rest}>
-          {line || ' '}
-        </Text>
-      ))}
+      {paragraphs.map((para, pi) => {
+        const rtl = isRTL(para)
+        const rtlStyle = rtl ? { direction: 'rtl', textAlign: 'right' } : {}
+        return (
+          <View key={pi} style={pi > 0 ? { marginTop: 4 } : {}}>
+            {para.split('\n').map((line, li) => (
+              <Text key={li} style={[...styleArr, rtlStyle]} {...rest}>{line || ' '}</Text>
+            ))}
+          </View>
+        )
+      })}
     </View>
   )
 }
-
 function spellComponents(sp) {
   const parts = [sp.comp_v && 'V', sp.comp_s && 'S', sp.comp_m && 'M'].filter(Boolean)
   if (parts.length === 0) return '—'

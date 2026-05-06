@@ -917,7 +917,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                             {/* Description */}
                             {item.description
-                              ? <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                              ? item.description.split(/\n\n+/).map((para, i) => (
+                                  <p key={i} dir="auto" className={`text-stone-300 text-sm whitespace-pre-wrap${i > 0 ? ' mt-2' : ''}`}
+                                     style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
+                                ))
                               : <p className="text-stone-500 text-sm italic">No description.</p>
                             }
                           </div>

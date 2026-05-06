@@ -3,6 +3,16 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+
+// Splits on blank lines and gives each paragraph its own dir="auto" so RTL/LTR
+// is detected independently per paragraph rather than for the whole text block.
+function DescBlock({ text, className }) {
+  if (!text) return null
+  return text.split(/\n\n+/).map((para, i) => (
+    <p key={i} dir="auto" className={`${className}${i > 0 ? ' mt-2' : ''}`}
+       style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
+  ))
+}
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
@@ -831,7 +841,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                                 {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
                                 {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
                                 {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
-                                {sp.description && <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>}
+                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />}
                               </div>
                             )}
                           </div>
@@ -1244,7 +1254,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                   <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
                                 )}
                                 {sp.description && (
-                                  <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                                  <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
                                 )}
                               </div>
                             )}
@@ -3064,7 +3074,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                                   </div>
                                 )}
                                 {item.description
-                                  ? <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
                                   : <p className="text-stone-500 text-sm italic">No description.</p>
                                 }
                               </div>
@@ -3255,7 +3265,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {isExpanded && (
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
-                          ? <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{featDesc}</p>
+                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm whitespace-pre-wrap" />
                           : <p className="text-stone-500 text-sm italic">No description.</p>
                         }
                       </div>

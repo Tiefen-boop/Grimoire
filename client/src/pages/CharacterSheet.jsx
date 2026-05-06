@@ -831,7 +831,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                                 {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
                                 {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
                                 {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
-                                {sp.description && <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>}
+                                {sp.description && <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>}
                               </div>
                             )}
                           </div>
@@ -857,6 +857,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
   const { ref: rhfRef, ...rest } = registerResult
   return (
     <textarea
+      dir="auto"
       {...rest}
       {...props}
       className={className}
@@ -3063,7 +3064,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                                   </div>
                                 )}
                                 {item.description
-                                  ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                  ? <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
                                   : <p className="text-stone-500 text-sm italic">No description.</p>
                                 }
                               </div>
@@ -3179,7 +3180,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       )}
                     </div>
                     {/* Description */}
-                    <textarea {...register(`features_list.${i}.description`)} className="input w-full resize-none"
+                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none"
                       rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                   </div>
                 ) : (
@@ -3254,7 +3255,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {isExpanded && (
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
-                          ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{featDesc}</p>
+                          ? <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{featDesc}</p>
                           : <p className="text-stone-500 text-sm italic">No description.</p>
                         }
                       </div>

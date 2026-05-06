@@ -1,6 +1,16 @@
 import React from 'react'
-import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer'
 import { evalFormula } from '../utils/formulaEval'
+
+Font.register({
+  family: 'NotoSans',
+  fonts: [
+    { src: `${window.location.origin}/fonts/Heebo-Regular.ttf` },
+    { src: `${window.location.origin}/fonts/Heebo-Bold.ttf`,    fontWeight: 'bold' },
+    { src: `${window.location.origin}/fonts/Heebo-Bold.ttf`,    fontWeight: 'bold', fontStyle: 'italic' },
+    { src: `${window.location.origin}/fonts/Heebo-Regular.ttf`, fontStyle: 'italic' },
+  ],
+})
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -62,6 +72,30 @@ function propLabel(p) {
   return p.extra ? `${p.name} (${p.extra})` : p.name
 }
 
+const RTL_RE = /[֐-׿؀-ۿݐ-ݿיִ-﷿ﹰ-﻿]/
+function isRTL(str) {
+  const m = (str || '').match(/\p{L}/u)
+  return m ? RTL_RE.test(m[0]) : false
+}
+function DirText({ style, children, ...rest }) {
+  const text = typeof children === 'string' ? children : ''
+  const rtl = isRTL(text)
+  const styleArr = Array.isArray(style) ? style : [style]
+  if (!rtl) return <Text style={styleArr} {...rest}>{children}</Text>
+  // Split on newlines so each <Text direction='rtl'> is a single paragraph.
+  // react-pdf's Ã artifact only triggers when it wraps a long RTL line;
+  // short paragraphs fit on one line and render cleanly.
+  return (
+    <View>
+      {text.split('\n').map((line, i) => (
+        <Text key={i} style={[...styleArr, { direction: 'rtl', textAlign: 'right' }]} {...rest}>
+          {line || ' '}
+        </Text>
+      ))}
+    </View>
+  )
+}
+
 function spellComponents(sp) {
   const parts = [sp.comp_v && 'V', sp.comp_s && 'S', sp.comp_m && 'M'].filter(Boolean)
   if (parts.length === 0) return '—'
@@ -95,7 +129,7 @@ const C = {
 // ── styles ────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  page:        { backgroundColor: C.bg, padding: 18, fontFamily: 'Helvetica', fontSize: 8, color: C.text },
+  page:        { backgroundColor: C.bg, padding: 18, fontFamily: 'NotoSans', fontSize: 8, color: C.text },
 
   row:         { flexDirection: 'row' },
   flex1:       { flex: 1 },
@@ -105,56 +139,56 @@ const s = StyleSheet.create({
   headerBox:   { flexDirection: 'row', borderBottom: `2pt solid ${C.borderDark}`, paddingBottom: 6, marginBottom: 6 },
   portrait:    { width: 54, height: 54, borderRadius: 3, marginRight: 8, border: `1pt solid ${C.border}` },
   portraitPh:  { width: 54, height: 54, borderRadius: 3, marginRight: 8, border: `1pt solid ${C.border}`, backgroundColor: C.subtle, justifyContent: 'center', alignItems: 'center' },
-  charName:    { fontSize: 18, fontFamily: 'Helvetica-Bold', color: C.accent, marginBottom: 2 },
+  charName:    { fontSize: 18, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.accent, marginBottom: 2 },
   headerMeta:  { fontSize: 7.5, color: C.textMuted, marginBottom: 1.5 },
 
   // section headers
-  secHeader:   { backgroundColor: C.accentBg, color: C.accentText, fontFamily: 'Helvetica-Bold', fontSize: 7, paddingHorizontal: 5, paddingVertical: 2.5, marginBottom: 4, letterSpacing: 0.6 },
+  secHeader:   { backgroundColor: C.accentBg, color: C.accentText, fontFamily: 'NotoSans', fontWeight: 'bold', fontSize: 7, paddingHorizontal: 5, paddingVertical: 2.5, marginBottom: 4, letterSpacing: 0.6 },
 
   // boxes
   box:         { borderWidth: 1, borderStyle: 'solid', borderColor: C.border, borderRadius: 2, padding: 3, marginBottom: 3 },
-  boxLabel:    { fontSize: 6, color: C.textMuted, fontFamily: 'Helvetica-Bold', letterSpacing: 0.3, marginBottom: 1 },
-  boxValue:    { fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.text },
-  boxValueSm:  { fontSize: 8,  fontFamily: 'Helvetica-Bold', color: C.text },
+  boxLabel:    { fontSize: 6, color: C.textMuted, fontFamily: 'NotoSans', fontWeight: 'bold', letterSpacing: 0.3, marginBottom: 1 },
+  boxValue:    { fontSize: 10, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text },
+  boxValueSm:  { fontSize: 8,  fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text },
 
   // ability score column
   abilityBox:  { borderWidth: 1, borderStyle: 'solid', borderColor: C.border, borderRadius: 2, alignItems: 'center', paddingVertical: 3, paddingHorizontal: 2, marginBottom: 3, width: 44 },
-  abilityLabel:{ fontSize: 6, fontFamily: 'Helvetica-Bold', color: C.accent, letterSpacing: 0.4 },
-  abilityScore:{ fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.text, marginVertical: 1 },
-  abilityMod:  { fontSize: 9,  fontFamily: 'Helvetica-Bold', color: C.text },
+  abilityLabel:{ fontSize: 6, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.accent, letterSpacing: 0.4 },
+  abilityScore:{ fontSize: 11, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text, marginVertical: 1 },
+  abilityMod:  { fontSize: 9,  fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text },
 
   // combat stat box
   statBox:     { flex: 1, borderWidth: 1, borderStyle: 'solid', borderColor: C.border, borderRadius: 2, alignItems: 'center', paddingVertical: 3, paddingHorizontal: 2, marginRight: 3 },
   statBoxLast: { flex: 1, borderWidth: 1, borderStyle: 'solid', borderColor: C.border, borderRadius: 2, alignItems: 'center', paddingVertical: 3, paddingHorizontal: 2 },
   statLabel:   { fontSize: 6, color: C.textMuted, textAlign: 'center', marginBottom: 1 },
-  statValue:   { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.text },
+  statValue:   { fontSize: 11, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text },
 
   // proficiency list rows
   listRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 1.5 },
   listName:    { flex: 1, fontSize: 7, color: C.text },
-  listVal:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.text, width: 22, textAlign: 'right' },
+  listVal:     { fontSize: 7, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text, width: 22, textAlign: 'right' },
 
   // table
   tblHeader:   { flexDirection: 'row', backgroundColor: C.subtle, paddingVertical: 2, paddingHorizontal: 3, borderBottom: `0.5pt solid ${C.border}` },
   tblRow:      { flexDirection: 'row', paddingVertical: 2, paddingHorizontal: 3, borderBottom: `0.5pt solid ${C.subtle}` },
   tblCell:     { fontSize: 7, color: C.text },
-  tblCellBold: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.text },
+  tblCellBold: { fontSize: 7, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text },
 
   // text
   textBlock:   { fontSize: 7.5, color: C.text, lineHeight: 1.45 },
-  fieldLabel:  { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: C.textMuted, marginBottom: 1.5, letterSpacing: 0.3 },
-  featureName: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.accent, marginBottom: 1 },
-  featureSource:{ fontSize: 6.5, color: C.textMuted, fontFamily: 'Helvetica-Oblique', marginBottom: 2 },
+  fieldLabel:  { fontSize: 6.5, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.textMuted, marginBottom: 1.5, letterSpacing: 0.3 },
+  featureName: { fontSize: 8.5, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.accent, marginBottom: 1 },
+  featureSource:{ fontSize: 6.5, color: C.textMuted, fontFamily: 'NotoSans', fontStyle: 'italic', marginBottom: 2 },
 
   // inventory
   coinRow:     { flexDirection: 'row', marginBottom: 10 },
   coinBox:     { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 3, paddingVertical: 6, marginRight: 4 },
   coinBoxLast: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 3, paddingVertical: 6 },
-  coinLabel:   { fontSize: 7, fontFamily: 'Helvetica-Bold' },
-  coinValue:   { fontSize: 12, fontFamily: 'Helvetica-Bold' },
+  coinLabel:   { fontSize: 7, fontFamily: 'NotoSans', fontWeight: 'bold' },
+  coinValue:   { fontSize: 12, fontFamily: 'NotoSans', fontWeight: 'bold' },
   badge:       { borderRadius: 2, paddingHorizontal: 4, paddingVertical: 1.5, marginRight: 3, marginBottom: 2 },
-  badgeText:   { fontSize: 6, fontFamily: 'Helvetica-Bold' },
-  itemName:    { fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text },
+  badgeText:   { fontSize: 6, fontFamily: 'NotoSans', fontWeight: 'bold' },
+  itemName:    { fontSize: 9, fontFamily: 'NotoSans', fontWeight: 'bold', color: C.text },
   itemBlock:   { paddingVertical: 5, borderBottom: `0.5pt solid ${C.subtle}` },
 })
 
@@ -187,7 +221,7 @@ function ProfCircle({ proficient, expert }) {
   if (expert) {
     return (
       <View style={{ width: size, height: size, borderRadius: r, backgroundColor: C.accent, marginRight: 4, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ fontSize: 4.5, color: '#fff', fontFamily: 'Helvetica-Bold', lineHeight: 1 }}>E</Text>
+        <Text style={{ fontSize: 4.5, color: '#fff', fontFamily: 'NotoSans', fontWeight: 'bold', lineHeight: 1 }}>E</Text>
       </View>
     )
   }
@@ -464,7 +498,7 @@ function FeaturesPage({ d }) {
               {f.has_charges ? (
                 <ChargesDisplay current={f.charges_current} max={f.charges_max} recharge={f.charges_recharge} />
               ) : null}
-              {f.description ? <Text style={s.textBlock}>{f.description}</Text> : null}
+              {f.description ? <DirText style={s.textBlock}>{f.description}</DirText> : null}
             </View>
           ))}
           {d.features_and_traits ? (
@@ -508,10 +542,10 @@ function FeaturesPage({ d }) {
           <View style={s.vspacer} />
           <SectionHeader>Proficiencies &amp; Languages</SectionHeader>
           <View wrap={false} style={{ paddingVertical: 4 }}>
-            {wpProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Weapons: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{wpProfs.join(', ')}</Text></Text>}
-            {arProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Armor: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{arProfs.join(', ')}</Text></Text>}
-            {toolProfs.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Tools: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{toolProfs.join(', ')}</Text></Text>}
-            {languages.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Languages: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{languages.join(', ')}</Text></Text>}
+            {wpProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Weapons: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{wpProfs.join(', ')}</Text></Text>}
+            {arProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Armor: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{arProfs.join(', ')}</Text></Text>}
+            {toolProfs.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Tools: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{toolProfs.join(', ')}</Text></Text>}
+            {languages.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Languages: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{languages.join(', ')}</Text></Text>}
             {d.other_proficiencies ? <Text style={s.textBlock}>{d.other_proficiencies}</Text> : null}
           </View>
         </>
@@ -548,7 +582,7 @@ function FeaturesPage({ d }) {
               {[['Age', d.age], ['Height', d.height], ['Weight', d.weight], ['Eyes', d.eyes], ['Skin', d.skin], ['Hair', d.hair]]
                 .filter(([, v]) => v)
                 .map(([label, value]) => (
-                  <Text key={label} style={s.fieldLabel}>{label}: <Text style={{ fontFamily: 'Helvetica', color: C.text }}>{value}</Text></Text>
+                  <Text key={label} style={s.fieldLabel}>{label}: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{value}</Text></Text>
                 ))
               }
             </View>
@@ -662,8 +696,8 @@ function InventoryPage({ d }) {
                           <Text style={[s.badgeText, { color: C.text }]}>{item.weapon_specific}</Text>
                         </View>
                       )}
-                      {atkV && <Text style={[s.tblCell, { marginRight: 8 }]}>Atk: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{atkV}</Text></Text>}
-                      {dmgV && <Text style={[s.tblCell, { marginRight: 8 }]}>Dmg: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{dmgV}</Text></Text>}
+                      {atkV && <Text style={[s.tblCell, { marginRight: 8 }]}>Atk: <Text style={{ fontFamily: 'NotoSans', fontWeight: 'bold' }}>{atkV}</Text></Text>}
+                      {dmgV && <Text style={[s.tblCell, { marginRight: 8 }]}>Dmg: <Text style={{ fontFamily: 'NotoSans', fontWeight: 'bold' }}>{dmgV}</Text></Text>}
                       {propsStr && <Text style={[s.tblCell, { color: C.textMuted }]}>{propsStr}</Text>}
                     </View>
                   )}
@@ -679,7 +713,7 @@ function InventoryPage({ d }) {
                           </Text>
                         </View>
                       )}
-                      {item.ac_formula && <Text style={[s.tblCell, { marginLeft: 4 }]}>AC: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{evalFormula(item.ac_formula, charStats)}</Text></Text>}
+                      {item.ac_formula && <Text style={[s.tblCell, { marginLeft: 4 }]}>AC: <Text style={{ fontFamily: 'NotoSans', fontWeight: 'bold' }}>{evalFormula(item.ac_formula, charStats)}</Text></Text>}
                     </View>
                   )}
 
@@ -696,7 +730,7 @@ function InventoryPage({ d }) {
                   )}
 
                   {/* Description */}
-                  {item.description ? <Text style={s.textBlock}>{item.description}</Text> : null}
+                  {item.description ? <DirText style={s.textBlock}>{item.description}</DirText> : null}
                 </View>
               )
             })}
@@ -794,7 +828,7 @@ function SpellcastingPage({ d, cls }) {
                     <Text style={s.tblCellBold}>{sp.name}</Text>
                     {sp.concentration && (
                       <View style={{ marginLeft: 3, backgroundColor: '#4c1d95', borderRadius: 2, paddingHorizontal: 3, paddingVertical: 1 }}>
-                        <Text style={{ fontSize: 5, color: '#ede9fe', fontFamily: 'Helvetica-Bold' }}>CONC</Text>
+                        <Text style={{ fontSize: 5, color: '#ede9fe', fontFamily: 'NotoSans', fontWeight: 'bold' }}>CONC</Text>
                       </View>
                     )}
                   </View>
@@ -806,7 +840,7 @@ function SpellcastingPage({ d, cls }) {
                 </View>
                 {sp.description ? (
                   <View style={{ paddingLeft: 23, paddingRight: 4, paddingVertical: 2, backgroundColor: rowBg }}>
-                    <Text style={[s.textBlock, { fontSize: 7 }]}>{sp.description}</Text>
+                    <DirText style={[s.textBlock, { fontSize: 7 }]}>{sp.description}</DirText>
                   </View>
                 ) : null}
               </View>

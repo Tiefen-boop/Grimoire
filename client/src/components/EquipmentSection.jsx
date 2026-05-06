@@ -700,7 +700,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         )}
 
                         {/* Description */}
-                        <textarea {...register(`equipment.${i}.description`)} className="input w-full resize-none"
+                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
                           rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                       </div>
 

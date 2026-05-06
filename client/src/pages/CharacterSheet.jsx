@@ -1244,7 +1244,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                   <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
                                 )}
                                 {sp.description && (
-                                  <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                                  <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
                                 )}
                               </div>
                             )}

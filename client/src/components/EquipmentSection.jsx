@@ -917,7 +917,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                             {/* Description */}
                             {item.description
-                              ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                              ? <p dir="auto" className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
                               : <p className="text-stone-500 text-sm italic">No description.</p>
                             }
                           </div>

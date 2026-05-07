@@ -1824,6 +1824,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     proficiency_bonus: watchedProfBonus
   }
 
+  const hasNonProfArmor = (watch('equipment') || []).some(
+    item => item.type === 'armor' && item.equipped && checkArmorProficiency(item, watchedArmorProfs) === false
+  )
+
   const autoAC = (() => {
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
     const body = equipped.filter(i => i.armor_category !== 'shield')
@@ -2522,8 +2526,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     className="flex items-center gap-2 cursor-pointer py-1 rounded px-1 hover:bg-stone-800/60 transition-colors"
                     onClick={() => !readOnly && toggleArrayValue('saving_throw_profs', ability)}>
                     <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 transition-colors ${isProficient ? `${c.dot} border-transparent` : 'bg-transparent border-stone-600'}`} />
-                    <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{ABILITY_SHORT[ability]}</span>
-                    <span className={`text-sm w-8 text-right tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
+                    <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>
+                      {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
+                    </span>
+                    <span className={`text-sm tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
                   </div>
                 )
               })}
@@ -2577,9 +2583,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     className={`w-3 h-3 rotate-45 border-2 shrink-0 transition-colors ${isExpert ? `${c.dot} border-transparent` : 'bg-transparent border-stone-700'}`}
                     title={isExpert ? 'Remove expertise' : 'Add expertise'}
                   />
-                  <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{skill.name}</span>
+                  <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>
+                    {skill.name}{hasNonProfArmor && (skill.ability === 'strength' || skill.ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
+                  </span>
                   <span className={`text-xs font-medium ${c.label}`}>{ABILITY_SHORT[skill.ability]}</span>
-                  <span className={`text-sm w-8 text-right tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
+                  <span className={`text-sm tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
                 </div>
               )
             })}
@@ -2813,7 +2821,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 const c = ABILITY_COLORS[ability]
                 return (
                   <div key={ability} className={`rounded-lg p-2 text-center border ${isProficient ? `bg-stone-900 ${c.border}` : 'bg-stone-900/50 border-stone-700'}`}>
-                    <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>{ABILITY_SHORT[ability]}</div>
+                    <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>
+                      {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
+                    </div>
                     <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</div>
                     {isProficient && <div className={`w-2 h-2 rounded-full mx-auto mt-0.5 ${c.dot}`} />}
                   </div>
@@ -3091,24 +3101,27 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         })()}
 
         {/* Per-class spellcasting */}
-        {allClasses.map((cls, classIndex) => {
-          if (!cls?.is_spellcaster || !cls?.casting_ability) return null
-          return (
-            <AttacksSpellcastingBlock
-              key={classIndex}
-              classIndex={classIndex}
-              className={cls.name}
-              castingAbility={cls.casting_ability}
-              control={control}
-              watch={watch}
-              setValue={setValue}
-              watchedProfBonus={watchedProfBonus}
-              watchedAbilities={watchedAbilities}
-              concentratingInfo={concentratingInfo}
-              onConcentrate={handleConcentrate}
-            />
-          )
-        })}
+        {hasNonProfArmor && activeTab === 'combat'
+          ? <p className="text-red-400 text-sm font-semibold mt-2">⚠ Non-proficient armor equipped — spellcasting unavailable</p>
+          : allClasses.map((cls, classIndex) => {
+              if (!cls?.is_spellcaster || !cls?.casting_ability) return null
+              return (
+                <AttacksSpellcastingBlock
+                  key={classIndex}
+                  classIndex={classIndex}
+                  className={cls.name}
+                  castingAbility={cls.casting_ability}
+                  control={control}
+                  watch={watch}
+                  setValue={setValue}
+                  watchedProfBonus={watchedProfBonus}
+                  watchedAbilities={watchedAbilities}
+                  concentratingInfo={concentratingInfo}
+                  onConcentrate={handleConcentrate}
+                />
+              )
+            })
+        }
       </Section>
 
       {/* Features, Proficiencies & Languages */}
@@ -3399,7 +3412,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             sectionKey={`Spellcasting-${field.id}`}
             defaultOpen={false}
             locked={activeTab === 'combat'}
-            hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+            hidden={(activeTab !== 'main' && activeTab !== 'combat') || (hasNonProfArmor && activeTab === 'combat')}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}

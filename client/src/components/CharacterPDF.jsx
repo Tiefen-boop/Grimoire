@@ -241,11 +241,15 @@ function SmallCircle({ filled }) {
   )
 }
 
-function ListRow({ proficient, expert, name, value }) {
+function ListRow({ proficient, expert, name, value, disadvantage, abilitySuffix }) {
   return (
     <View style={s.listRow}>
       <ProfCircle proficient={proficient} expert={expert} />
-      <Text style={s.listName}>{name}</Text>
+      <Text style={s.listName}>
+        {name}
+        {disadvantage && <Text style={{ fontSize: 5, color: C.textMuted }}> (DIS)</Text>}
+        {abilitySuffix && <Text style={{ color: C.textMuted }}>{` (${abilitySuffix})`}</Text>}
+      </Text>
       <Text style={s.listVal}>{value}</Text>
     </View>
   )
@@ -285,6 +289,12 @@ function CoreStatsPage({ d }) {
   const skillExp    = d.skill_expertise || []
   const conditions  = d.conditions || []
   const exhaustion  = d.exhaustion ?? 0
+  const armorProfs  = d.armor_profs || []
+  const hasNonProfArmor = (d.equipment || []).some(item =>
+    item.type === 'armor' && item.equipped &&
+    (armorProfs.includes(ARMOR_PROF_MAP[item.armor_category] || '') === false) &&
+    item.armor_category != null
+  )
 
   const abilityMod = a => mod(d[a] ?? 10)
   const skillBonus = sk => {
@@ -357,7 +367,8 @@ function CoreStatsPage({ d }) {
         <View style={{ width: 148, marginRight: 6 }}>
           <SectionHeader>Saving Throws</SectionHeader>
           {ABILITIES.map(a => (
-            <ListRow key={a} proficient={savingProfs.includes(a)} name={ABILITY_SHORT[a]} value={fmtMod(saveBonus(a))} />
+            <ListRow key={a} proficient={savingProfs.includes(a)} name={ABILITY_SHORT[a]} value={fmtMod(saveBonus(a))}
+              disadvantage={hasNonProfArmor && (a === 'strength' || a === 'dexterity')} />
           ))}
           <View style={s.vspacer} />
           <SectionHeader>Skills</SectionHeader>
@@ -366,8 +377,10 @@ function CoreStatsPage({ d }) {
               key={sk.name}
               proficient={skillProfs.includes(sk.name)}
               expert={skillExp.includes(sk.name)}
-              name={`${sk.name} (${ABILITY_SHORT[sk.ability]})`}
+              name={sk.name}
+              abilitySuffix={ABILITY_SHORT[sk.ability]}
               value={fmtMod(skillBonus(sk))}
+              disadvantage={hasNonProfArmor && (sk.ability === 'strength' || sk.ability === 'dexterity')}
             />
           ))}
           <View style={s.vspacer} />
@@ -717,7 +730,18 @@ function InventoryPage({ d }) {
                           </Text>
                         </View>
                       )}
-                      {item.ac_formula && <Text style={[s.tblCell, { marginLeft: 4 }]}>AC: <Text style={{ fontFamily: 'NotoSans', fontWeight: 'bold' }}>{evalFormula(item.ac_formula, charStats)}</Text></Text>}
+                      {item.ac_formula && (() => {
+                        const isShield = item.armor_category === 'shield'
+                        const acVal = evalFormula(item.ac_formula, charStats)
+                        const isComputational = isNaN(Number(item.ac_formula.trim()))
+                        return (
+                          <Text style={[s.tblCell, { marginLeft: 4 }]}>
+                            {'AC: '}
+                            <Text style={{ fontFamily: 'NotoSans', fontWeight: 'bold' }}>{(isShield ? '+' : '') + acVal}</Text>
+                            {isComputational && <Text style={{ color: C.textMuted }}>{` (${item.ac_formula})`}</Text>}
+                          </Text>
+                        )
+                      })()}
                     </View>
                   )}
 
@@ -860,6 +884,11 @@ function SpellcastingPage({ d, cls }) {
 
 export default function CharacterPDF({ data }) {
   const equipment     = data.equipment || []
+  const armorProfs    = data.armor_profs || []
+  const hasNonProfArmor = equipment.some(item =>
+    item.type === 'armor' && item.equipped && item.armor_category != null &&
+    armorProfs.includes(ARMOR_PROF_MAP[item.armor_category] || '') === false
+  )
   const casterClasses = (data.classes || []).filter(c => c.is_spellcaster)
 
   return (

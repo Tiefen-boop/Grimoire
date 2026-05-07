@@ -4,6 +4,12 @@ import { PlusIcon, TrashIcon, PencilIcon, CheckIcon, ChevronDownIcon, SparklesIc
 import Modal from './Modal'
 import { evalFormula } from '../utils/formulaEval'
 
+function checkArmorProficiency(item, armorProfs) {
+  if (!item.armor_category) return null
+  const map = { light: 'Light', medium: 'Medium', heavy: 'Heavy', shield: 'Shield' }
+  return (armorProfs || []).includes(map[item.armor_category] || '')
+}
+
 const WEAPON_TYPES = [
   { value: 'simple-melee',   label: 'Simple Melee' },
   { value: 'simple-ranged',  label: 'Simple Ranged' },
@@ -259,6 +265,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [chargesEmptyModal, setChargesEmptyModal] = useState(null)  // { name }
   const [attuneModal,       setAttuneModal]       = useState(null)  // { names: [] }
   const [equipModal,        setEquipModal]        = useState(null)  // { isShield, existingName, newName }
+  const [nonProfModal,      setNonProfModal]      = useState(null)  // { name, pendingIndex }
 
   // Property add form
   const [propFormFor, setPropFormFor] = useState(null)  // field.id or null
@@ -335,6 +342,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     }
     return ac
   }
+  function doEquip(i, willEquip) {
+    const updatedEquip = allEquip.map((x, idx) => idx === i ? { ...x, equipped: willEquip } : x)
+    setValue(`equipment.${i}.equipped`, willEquip, { shouldDirty: true })
+    setValue('armor_class', computeAC(updatedEquip), { shouldDirty: true })
+  }
   function handleEquip(i) {
     const item     = allEquip[i]
     const isShield = item.armor_category === 'shield'
@@ -348,10 +360,12 @@ export default function EquipmentSection({ control, register, watch, setValue, r
         setEquipModal({ isShield, existingName: conflict.name || 'Unnamed', newName: item.name || 'Unnamed' })
         return
       }
+      if (checkArmorProficiency(item, armorProfs) === false) {
+        setNonProfModal({ name: item.name || 'this armor', pendingIndex: i })
+        return
+      }
     }
-    const updatedEquip = allEquip.map((x, idx) => idx === i ? { ...x, equipped: willEquip } : x)
-    setValue(`equipment.${i}.equipped`, willEquip, { shouldDirty: true })
-    setValue('armor_class', computeAC(updatedEquip), { shouldDirty: true })
+    doEquip(i, willEquip)
   }
   function handleUseClick(i) {
     setUseModal({ index: i, name: allEquip[i]?.name || 'this item', isCharge: false })
@@ -828,7 +842,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 return <span><span className="text-stone-500">Dmg:</span> {evalFormula(effectiveDmg, charStats)}</span>
                               })()}
                               {cat.type === 'armor' && item.ac_formula && (
-                                <span><span className="text-stone-500">AC:</span> {evalFormula(item.ac_formula, charStats)}</span>
+                                <span><span className="text-stone-500">AC:</span> {(item.armor_category === 'shield' ? '+' : '') + evalFormula(item.ac_formula, charStats)}</span>
                               )}
                               {item.price && <span className="text-stone-500">{item.price}</span>}
                               {item.weight && isExpanded && <span className="text-stone-400">{item.weight}</span>}
@@ -910,7 +924,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   </span>
                                 )}
                                 {item.ac_formula && (
-                                  <span className="text-stone-400 text-sm">AC: <span className="text-stone-200">{evalFormula(item.ac_formula, charStats)}</span></span>
+                                  <span className="text-stone-400 text-sm">AC: <span className="text-stone-200">{(item.armor_category === 'shield' ? '+' : '') + evalFormula(item.ac_formula, charStats)}</span></span>
                                 )}
                               </div>
                             )}
@@ -955,6 +969,23 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       <Modal open={!!attuneModal} title="Already attuned to 3 items" onCancel={() => setAttuneModal(null)}>
         <ul className="list-disc list-inside space-y-1 mt-1">
           {attuneModal?.names.map((n, i) => <li key={i} className="text-stone-200">{n}</li>)}
+        </ul>
+      </Modal>
+
+      <Modal
+        open={!!nonProfModal}
+        title="Not proficient with this armor"
+        onConfirm={() => { doEquip(nonProfModal.pendingIndex, true); setNonProfModal(null) }}
+        onCancel={() => setNonProfModal(null)}
+        confirmLabel="Equip Anyway"
+        danger>
+        <p className="text-stone-300 mt-1">
+          You are not proficient with <strong className="text-stone-100">{nonProfModal?.name}</strong>.<br /><br />
+          While wearing it:
+        </p>
+        <ul className="list-disc list-inside space-y-1 mt-2 text-stone-300">
+          <li>STR &amp; DEX ability checks and saving throws are rolled with <strong className="text-red-300">disadvantage</strong></li>
+          <li>You <strong className="text-red-300">cannot cast spells</strong></li>
         </ul>
       </Modal>
 

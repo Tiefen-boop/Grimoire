@@ -507,7 +507,7 @@ function FeaturesPage({ d }) {
           ))}
           {d.features_and_traits ? (
             <View wrap={false} style={s.itemBlock}>
-              <Text style={s.textBlock}>{d.features_and_traits}</Text>
+              <DirText style={s.textBlock}>{d.features_and_traits}</DirText>
             </View>
           ) : null}
         </>
@@ -518,7 +518,7 @@ function FeaturesPage({ d }) {
           <View style={s.vspacer} />
           <SectionHeader>Additional Features</SectionHeader>
           <View wrap={false} style={s.itemBlock}>
-            <Text style={s.textBlock}>{d.additional_features_and_traits}</Text>
+            <DirText style={s.textBlock}>{d.additional_features_and_traits}</DirText>
           </View>
         </>
       ) : null}
@@ -535,7 +535,7 @@ function FeaturesPage({ d }) {
           ].filter(x => x.value).map(({ label, value }) => (
             <View key={label} wrap={false} style={s.itemBlock}>
               <Text style={s.featureName}>{label}</Text>
-              <Text style={s.textBlock}>{value}</Text>
+              <DirText style={s.textBlock}>{value}</DirText>
             </View>
           ))}
         </>
@@ -550,7 +550,7 @@ function FeaturesPage({ d }) {
             {arProfs.length > 0   && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Armor: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{arProfs.join(', ')}</Text></Text>}
             {toolProfs.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Tools: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{toolProfs.join(', ')}</Text></Text>}
             {languages.length > 0 && <Text style={[s.fieldLabel, { marginBottom: 2 }]}>Languages: <Text style={{ fontFamily: 'NotoSans', color: C.text }}>{languages.join(', ')}</Text></Text>}
-            {d.other_proficiencies ? <Text style={s.textBlock}>{d.other_proficiencies}</Text> : null}
+            {d.other_proficiencies ? <DirText style={s.textBlock}>{d.other_proficiencies}</DirText> : null}
           </View>
         </>
       )}
@@ -560,18 +560,18 @@ function FeaturesPage({ d }) {
           <View style={s.vspacer} />
           <SectionHeader>Backstory</SectionHeader>
           {d.character_backstory ? (
-            <View wrap={false} style={s.itemBlock}><Text style={s.textBlock}>{d.character_backstory}</Text></View>
+            <View wrap={false} style={s.itemBlock}><DirText style={s.textBlock}>{d.character_backstory}</DirText></View>
           ) : null}
           {d.allies_and_organizations ? (
             <View wrap={false} style={s.itemBlock}>
               <Text style={s.featureName}>Allies &amp; Organizations</Text>
-              <Text style={s.textBlock}>{d.allies_and_organizations}</Text>
+              <DirText style={s.textBlock}>{d.allies_and_organizations}</DirText>
             </View>
           ) : null}
           {d.treasure ? (
             <View wrap={false} style={s.itemBlock}>
               <Text style={s.featureName}>Treasure</Text>
-              <Text style={s.textBlock}>{d.treasure}</Text>
+              <DirText style={s.textBlock}>{d.treasure}</DirText>
             </View>
           ) : null}
         </>
@@ -590,7 +590,7 @@ function FeaturesPage({ d }) {
                 ))
               }
             </View>
-            {d.appearance_notes ? <Text style={s.textBlock}>{d.appearance_notes}</Text> : null}
+            {d.appearance_notes ? <DirText style={s.textBlock}>{d.appearance_notes}</DirText> : null}
           </View>
         </>
       )}
@@ -599,7 +599,7 @@ function FeaturesPage({ d }) {
         <>
           <View style={s.vspacer} />
           <SectionHeader>Notes</SectionHeader>
-          <View wrap={false}><Text style={s.textBlock}>{d.notes}</Text></View>
+          <View wrap={false}><DirText style={s.textBlock}>{d.notes}</DirText></View>
         </>
       )}
     </Page>

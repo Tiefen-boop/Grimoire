@@ -3427,21 +3427,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           ].map(f => (
             <div key={f.name}>
               <label className="label">{f.label}</label>
-              <textarea rows={3} {...register(f.name)} className="input resize-none" disabled={readOnly} />
+              <textarea dir="auto" rows={3} {...register(f.name)} className="input resize-none" disabled={readOnly} />
             </div>
           ))}
         </div>
         <div className="mt-3">
           <label className="label">Features & Traits</label>
-          <textarea rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Other Proficiencies & Languages</label>
-          <textarea rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Additional Features & Traits</label>
-          <textarea rows={3} {...register('additional_features_and_traits')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={3} {...register('additional_features_and_traits')} className="input resize-none" disabled={readOnly} />
         </div>
       </Section>
 
@@ -3465,26 +3465,26 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Appearance Notes</label>
-            <textarea rows={3} {...register('appearance_notes')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('appearance_notes')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Backstory</label>
-            <textarea rows={3} {...register('character_backstory')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('character_backstory')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Allies & Organizations</label>
-            <textarea rows={3} {...register('allies_and_organizations')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('allies_and_organizations')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Treasure</label>
-            <textarea rows={3} {...register('treasure')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('treasure')} className="input resize-none" disabled={readOnly} />
           </div>
         </div>
       </Section>
 
       {/* Notes */}
       <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
-        <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
+        <textarea dir="auto" rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
 
       </div>{/* end animated tab content wrapper */}

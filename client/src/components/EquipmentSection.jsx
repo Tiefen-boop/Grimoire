@@ -700,7 +700,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         )}
 
                         {/* Description */}
-                        <textarea {...register(`equipment.${i}.description`)} className="input w-full resize-none"
+                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
                           rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                       </div>
 
@@ -917,7 +917,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                             {/* Description */}
                             {item.description
-                              ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                              ? item.description.split(/\n\n+/).map((para, i) => (
+                                  <p key={i} dir="auto" className={`text-stone-300 text-sm whitespace-pre-wrap${i > 0 ? ' mt-2' : ''}`}
+                                     style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
+                                ))
                               : <p className="text-stone-500 text-sm italic">No description.</p>
                             }
                           </div>

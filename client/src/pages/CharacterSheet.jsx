@@ -3,6 +3,16 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+
+// Splits on blank lines and gives each paragraph its own dir="auto" so RTL/LTR
+// is detected independently per paragraph rather than for the whole text block.
+function DescBlock({ text, className }) {
+  if (!text) return null
+  return text.split(/\n\n+/).map((para, i) => (
+    <p key={i} dir="auto" className={`${className}${i > 0 ? ' mt-2' : ''}`}
+       style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
+  ))
+}
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
@@ -831,7 +841,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                                 {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
                                 {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
                                 {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
-                                {sp.description && <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>}
+                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />}
                               </div>
                             )}
                           </div>
@@ -857,6 +867,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
   const { ref: rhfRef, ...rest } = registerResult
   return (
     <textarea
+      dir="auto"
       {...rest}
       {...props}
       className={className}
@@ -1243,7 +1254,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                   <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
                                 )}
                                 {sp.description && (
-                                  <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                                  <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
                                 )}
                               </div>
                             )}
@@ -1523,6 +1534,7 @@ export default function CharacterSheet() {
   const [saveErrorModal, setSaveErrorModal] = useState(null)
   const [showJsonModal,  setShowJsonModal]  = useState(false)
   const [jsonCopied,     setJsonCopied]     = useState(false)
+  const [pdfGenerating,  setPdfGenerating]  = useState(false)
   const [campaignChars, setCampaignChars] = useState([])
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
@@ -2087,6 +2099,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       setValue(fieldName, current.filter(v => v !== value), { shouldDirty: true })
     } else {
       setValue(fieldName, [...current, value], { shouldDirty: true })
+    }
+  }
+
+  async function handleDownloadPDF() {
+    setPdfGenerating(true)
+    try {
+      const [{ pdf }, { default: CharacterPDF }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('../components/CharacterPDF'),
+      ])
+      const blob = await pdf(<CharacterPDF data={watch()} />).toBlob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${watch('name') || 'character'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setPdfGenerating(false)
     }
   }
 
@@ -3043,7 +3074,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                                   </div>
                                 )}
                                 {item.description
-                                  ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
                                   : <p className="text-stone-500 text-sm italic">No description.</p>
                                 }
                               </div>
@@ -3159,7 +3190,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       )}
                     </div>
                     {/* Description */}
-                    <textarea {...register(`features_list.${i}.description`)} className="input w-full resize-none"
+                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none"
                       rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                   </div>
                 ) : (
@@ -3234,7 +3265,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {isExpanded && (
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
-                          ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{featDesc}</p>
+                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm whitespace-pre-wrap" />
                           : <p className="text-stone-500 text-sm italic">No description.</p>
                         }
                       </div>
@@ -3396,21 +3427,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           ].map(f => (
             <div key={f.name}>
               <label className="label">{f.label}</label>
-              <textarea rows={3} {...register(f.name)} className="input resize-none" disabled={readOnly} />
+              <textarea dir="auto" rows={3} {...register(f.name)} className="input resize-none" disabled={readOnly} />
             </div>
           ))}
         </div>
         <div className="mt-3">
           <label className="label">Features & Traits</label>
-          <textarea rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Other Proficiencies & Languages</label>
-          <textarea rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Additional Features & Traits</label>
-          <textarea rows={3} {...register('additional_features_and_traits')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={3} {...register('additional_features_and_traits')} className="input resize-none" disabled={readOnly} />
         </div>
       </Section>
 
@@ -3434,26 +3465,26 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Appearance Notes</label>
-            <textarea rows={3} {...register('appearance_notes')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('appearance_notes')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Backstory</label>
-            <textarea rows={3} {...register('character_backstory')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('character_backstory')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Allies & Organizations</label>
-            <textarea rows={3} {...register('allies_and_organizations')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('allies_and_organizations')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Treasure</label>
-            <textarea rows={3} {...register('treasure')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('treasure')} className="input resize-none" disabled={readOnly} />
           </div>
         </div>
       </Section>
 
       {/* Notes */}
       <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
-        <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
+        <textarea dir="auto" rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
 
       </div>{/* end animated tab content wrapper */}
@@ -3492,6 +3523,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         Level up in <strong>{levelUpModal?.className}</strong>?{' '}
         (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
       </Modal>
+
+      {/* PDF export handler (no modal needed — triggers download directly) */}
+      {/* Button below calls handleDownloadPDF */}
 
       {/* JSON export */}
       {showJsonModal && (() => {
@@ -3607,6 +3641,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       {/* Save button at bottom too */}
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         {error && <span className="text-red-400 text-sm self-center">{error}</span>}
+        <button type="button" onClick={handleDownloadPDF} disabled={pdfGenerating}
+          className="btn btn-secondary">
+          {pdfGenerating ? 'Generating…' : 'To PDF'}
+        </button>
         <button type="button" onClick={() => { setJsonCopied(false); setShowJsonModal(true) }}
           className="btn btn-secondary">
           To JSON

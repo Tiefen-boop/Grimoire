@@ -473,7 +473,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                 const isExpanded = expanded.has(field.id)
                 const isEditing  = editing.has(field.id)
                 const item       = allEquip[i] || {}
-                const props      = item.properties || []
+                const props      = (item.properties || []).slice().sort((a, b) => a.name.localeCompare(b.name))
 
                 function confirmEdit() {
                   if (cat.type === 'weapon' && !item.weapon_specific) {

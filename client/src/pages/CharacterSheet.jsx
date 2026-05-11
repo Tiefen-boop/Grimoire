@@ -630,7 +630,7 @@ function setCookie(name, value) {
 
 const ATTACKS_SPELL_FILTERS_GENERAL = SPELL_FILTERS_GENERAL.filter(f => f.key !== 'prepared')
 
-function AttacksSpellcastingBlock({ classIndex, className, castingAbility, control, watch, setValue, watchedProfBonus, watchedAbilities, concentratingInfo, onConcentrate }) {
+function AttacksSpellcastingBlock({ classIndex, className, castingAbility, spellPreparation, control, watch, setValue, watchedProfBonus, watchedAbilities, concentratingInfo, onConcentrate }) {
   const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
 
   const cookieKey = `grimoire_atk_exp_${(className || 'unknown').replace(/\W+/g, '_')}`
@@ -741,7 +741,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
               const c = SPELL_LEVEL_COLORS[lvl]
               const levelSpells = allSpells
                 .map((sp, i) => ({ sp, i }))
-                .filter(({ sp }) => (sp?.level ?? 0) === lvl && (lvl === 0 || !!sp?.prepared))
+                .filter(({ sp }) => (sp?.level ?? 0) === lvl && (lvl === 0 || spellPreparation === 'known' || !!sp?.prepared))
               const slotsAvailable = hasSlotAtOrAbove(lvl)
               const visibleSpells  = slotsAvailable ? levelSpells.filter(({ sp }) => spellVisible(sp, lvl)) : []
               const isFiltering   = showFilters.length > 0 || hideFilters.length > 0
@@ -878,7 +878,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
   )
 }
 
-function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
+function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPreparation, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
   const { fields: spellFields, append: addSpell, remove: removeSpell, move: moveSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
   })
@@ -1011,7 +1011,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
       {/* Filters */}
       <div className="flex flex-col gap-1 mb-3">
         <div className="flex flex-wrap gap-1">
-          {SPELL_FILTERS_GENERAL.map(f => (
+          {SPELL_FILTERS_GENERAL.filter(f => spellPreparation !== 'known' || f.key !== 'prepared').map(f => (
             <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
               className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
               {f.label}
@@ -1139,7 +1139,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                 {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
                               <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input w-32" placeholder="Duration" />
-                              {lvl > 0 && (
+                              {lvl > 0 && spellPreparation !== 'known' && (
                                 <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
                                   <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
                                   Prepared
@@ -1211,7 +1211,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                       {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
                                     </span>
                                     {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
-                                    {lvl > 0 && (
+                                    {lvl > 0 && spellPreparation !== 'known' && (
                                       <button type="button"
                                         onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
                                         className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
@@ -1602,6 +1602,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [outOfChargesModal, setOutOfChargesModal] = useState(null) // { name }
 
   const [editingClasses,  setEditingClasses]  = useState(new Set())
+  const [classErrors,     setClassErrors]     = useState({})
   const prevClassesLengthRef = useRef(0)
   const classPreEditRef = useRef({})
   const pendingNewClass      = useRef(false)
@@ -1731,6 +1732,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   function stopEditClass(fieldId) {
     const i = classFields.findIndex(f => f.id === fieldId)
     const cls = allClasses[i]
+    const missing = []
+    if (!cls?.name)    missing.push('name')
+    if (!cls?.hit_die) missing.push('hit die')
+    if (cls?.is_spellcaster && !cls?.casting_ability)   missing.push('casting ability')
+    if (cls?.is_spellcaster && !cls?.spell_preparation) missing.push('spell preparation type')
+    if (missing.length > 0) {
+      setClassErrors(prev => ({ ...prev, [fieldId]: `Missing: ${missing.join(', ')}.` })); return
+    }
+    setClassErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n })
     const pre = classPreEditRef.current[fieldId] || { level: 0, hit_die: '' }
     delete classPreEditRef.current[fieldId]
     const delta = hitDiceDelta(computeHitDice([pre]), computeHitDice([{ level: cls?.level || 0, hit_die: cls?.hit_die || '' }]))
@@ -2330,7 +2340,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_preparation: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -2346,10 +2356,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   {isEditing && !readOnly ? (
                     <div className="p-2 space-y-2">
                       <div className="flex gap-2 flex-wrap items-center">
-                        <input {...register(`classes.${i}.name`)} className="input flex-1 min-w-28" placeholder="Class name" autoFocus={!cls.name} />
+                        <input {...register(`classes.${i}.name`)} className={`input flex-1 min-w-28 ${classErrors[field.id] && !cls.name ? 'border-red-600' : ''}`} placeholder="Class name" autoFocus={!cls.name} />
                         <input {...register(`classes.${i}.subclass`)} className="input flex-1 min-w-28" placeholder="Subclass (optional)" />
                         <input type="number" min={1} max={20} {...register(`classes.${i}.level`, { valueAsNumber: true })} className="input w-16" placeholder="Lvl" />
-                        <select {...register(`classes.${i}.hit_die`)} className="input w-20">
+                        <select {...register(`classes.${i}.hit_die`)} className={`input w-20 ${classErrors[field.id] && !cls.hit_die ? 'border-red-600' : ''}`}>
                           <option value="">HD</option>
                           {HD_DIE_SIZES.map(n => <option key={n} value={`d${n}`}>d{n}</option>)}
                         </select>
@@ -2369,7 +2379,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         </label>
                         {cls.is_spellcaster && (
                           <>
-                            <select {...register(`classes.${i}.casting_ability`)} className="input w-40">
+                            <select {...register(`classes.${i}.casting_ability`)} className={`input w-40 ${classErrors[field.id] && !cls.casting_ability ? 'border-red-600' : ''}`}>
                               <option value="">— casting ability —</option>
                               {ABILITIES.map(a => <option key={a} value={a}>{ABILITY_SHORT[a]} — {a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
                             </select>
@@ -2377,9 +2387,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                               <option value="long">Long rest slots</option>
                               <option value="short">Short rest slots</option>
                             </select>
+                            <select {...register(`classes.${i}.spell_preparation`, { required: cls.is_spellcaster })} className={`input w-40 ${cls.is_spellcaster && !cls.spell_preparation ? 'border-red-600' : ''}`}>
+                              <option value="">— spell type —</option>
+                              <option value="prepared">Prepares Spells</option>
+                              <option value="known">Spells Known</option>
+                            </select>
                           </>
                         )}
                       </div>
+                      {classErrors[field.id] && (
+                        <p className="text-red-400 text-xs px-3 pb-1">{classErrors[field.id]}</p>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
@@ -3111,6 +3129,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   classIndex={classIndex}
                   className={cls.name}
                   castingAbility={cls.casting_ability}
+                  spellPreparation={cls.spell_preparation || 'prepared'}
                   control={control}
                   watch={watch}
                   setValue={setValue}
@@ -3417,6 +3436,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
               classIndex={i}
               castingAbility={cls.casting_ability}
               slotRecovery={cls.slot_recovery}
+              spellPreparation={cls.spell_preparation || 'prepared'}
               control={control}
               register={register}
               watch={watch}

@@ -150,6 +150,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [weaponErrors,    setWeaponErrors]    = useState(new Set())
   const [weightErrors,    setWeightErrors]    = useState(new Set())
   const [priceErrors,     setPriceErrors]     = useState(new Set())
+  const [rechargeErrors,  setRechargeErrors]  = useState(new Set())
   const [draggingEquipId, setDraggingEquipId] = useState(null)
 
   const dragIndexRef = useRef(null)
@@ -383,7 +384,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       const curr = parseInt(watch(`equipment.${index}.charges_current`)) || 0
       const next = Math.max(0, curr - 1)
       setValue(`equipment.${index}.charges_current`, next, { shouldDirty: true })
-      if (next <= 0) setChargesEmptyModal({ name: allEquip[index]?.name || 'this item' })
+      if (next <= 0) {
+        if (allEquip[index]?.charges_recharge === 'none') {
+          setValue(`equipment.${index}.has_charges`, false, { shouldDirty: true })
+        } else {
+          setChargesEmptyModal({ name: allEquip[index]?.name || 'this item' })
+        }
+      }
     } else {
       const next = (parseInt(watch(`equipment.${index}.amount`)) || 0) - 1
       if (next <= 0) {
@@ -510,6 +517,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                     const m = item.price.match(/^([0-9]+)\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/)
                     if (m) setValue(`equipment.${i}.price`, `${parseInt(m[1], 10)} ${m[2].toUpperCase()}`, { shouldDirty: true })
                   }
+                  if (cat.type !== 'usable' && item.has_charges && !item.charges_recharge) {
+                    setRechargeErrors(prev => new Set([...prev, field.id])); return
+                  }
+                  setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
                   stopEdit(field.id)
                 }
 
@@ -685,29 +696,38 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     {...register(`equipment.${i}.charges_current`, {
                                       valueAsNumber: true,
                                       onChange: e => {
+                                        if (item.charges_recharge === 'none') return
                                         const max = parseInt(watch(`equipment.${i}.charges_max`)) || 0
                                         const val = parseInt(e.target.value) || 0
                                         if (val > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
                                       }
                                     })}
                                     className="input w-16 text-center" placeholder="0" />
-                                  <span>/</span>
-                                  <input type="number" min={1}
-                                    {...register(`equipment.${i}.charges_max`, {
-                                      valueAsNumber: true,
-                                      onChange: e => {
-                                        const max = parseInt(e.target.value) || 0
-                                        const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
-                                        if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
-                                      }
-                                    })}
-                                    className="input w-16 text-center" placeholder="1" />
+                                  {item.charges_recharge !== 'none' && (
+                                    <>
+                                      <span>/</span>
+                                      <input type="number" min={1}
+                                        {...register(`equipment.${i}.charges_max`, {
+                                          valueAsNumber: true,
+                                          onChange: e => {
+                                            const max = parseInt(e.target.value) || 0
+                                            const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                            if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
+                                          }
+                                        })}
+                                        className="input w-16 text-center" placeholder="1" />
+                                    </>
+                                  )}
                                 </div>
-                                <select {...register(`equipment.${i}.charges_recharge`)} className="input w-36">
+                                <select {...register(`equipment.${i}.charges_recharge`, { onChange: () => setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n }) })} className={`input w-36 ${rechargeErrors.has(field.id) ? 'border-red-500' : ''}`}>
                                   <option value="">— recharge —</option>
+                                  <option value="none">No Recharge</option>
                                   <option value="short">Short Rest</option>
                                   <option value="long">Long Rest</option>
                                 </select>
+                                {rechargeErrors.has(field.id) && (
+                                  <span className="text-red-400 text-xs">Select a recharge type.</span>
+                                )}
                               </>
                             )}
                           </div>
@@ -849,7 +869,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               {item.amount && <span>×{item.amount}</span>}
                               {cat.type !== 'usable' && item.has_charges && (
                                 <>
-                                  <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
+                                  {item.charges_recharge === 'none'
+                                    ? <span>{item.charges_current ?? 0} charges</span>
+                                    : <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
+                                  }
                                   {(item.charges_recharge === 'short' || item.charges_recharge === 'long') && (
                                     <span className="text-stone-500">({item.charges_recharge === 'short' ? 'Short Rest' : 'Long Rest'})</span>
                                   )}

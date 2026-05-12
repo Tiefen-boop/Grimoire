@@ -938,6 +938,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             (cat.type !== 'usable' && item.has_charges)
                           ) && (
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ml-5 mt-1 text-xs text-stone-400">
+                              {cat.type === 'weapon' && item.amount && <span>×{item.amount}</span>}
                               {cat.type === 'weapon' && item.attack_modifier && (
                                 <span><span className="text-stone-500">Att:</span> {fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, weaponStats(item)))}</span>
                               )}
@@ -952,7 +953,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                               )}
                               {item.price && <span className="text-stone-500">{item.price}</span>}
                               {item.weight && isExpanded && <span className="text-stone-400">{item.weight}</span>}
-                              {item.amount && <span>×{item.amount}</span>}
+                              {cat.type !== 'weapon' && item.amount && <span>×{item.amount}</span>}
                               {cat.type !== 'usable' && item.has_charges && (
                                 <>
                                   {item.charges_recharge === 'none'

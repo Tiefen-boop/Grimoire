@@ -588,6 +588,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                       <div className="p-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) confirmEdit() }}>
                         {/* Base row */}
                         <div className="flex gap-2 flex-wrap items-center">
+                          <div className="flex items-center gap-2 min-w-full sm:flex-1 sm:min-w-32">
                           <input {...register(`equipment.${i}.name`, {
                             onChange: e => {
                               if (cat.type === 'weapon') {
@@ -604,8 +605,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 if (category) setValue(`equipment.${i}.armor_category`, category, { shouldDirty: true })
                               }
                             }
-                          })} className="input flex-1 min-w-full sm:min-w-32"
+                          })} className="input flex-1"
                             placeholder="Name" autoFocus={!item.name} />
+                          <button type="button" onClick={() => setDeleteModal({ index: i, name: item.name || 'this item' })}
+                            className="sm:hidden text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                          </div>
                           <input {...register(`equipment.${i}.price`, {
                             onChange: () => setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
                           })} className={`input w-24 ${priceErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Price" />
@@ -665,11 +671,17 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             {weaponErrors.has(field.id) && (
                               <p className="text-red-400 text-xs">Select a specific weapon type before saving.</p>
                             )}
-                            <div className="flex gap-2 flex-wrap">
-                              <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1 min-w-36"
-                                placeholder="Attack modifier (e.g. STR+prof)" />
-                              <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1 min-w-36"
-                                placeholder="Damage roll (e.g. 1d8+STR[slashing])" />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-stone-400 text-sm shrink-0 w-8">Att:</span>
+                                <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1"
+                                  placeholder="e.g. STR+prof" />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-stone-400 text-sm shrink-0 w-8">Dmg:</span>
+                                <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1"
+                                  placeholder="e.g. 1d8+STR[slashing]" />
+                              </div>
                             </div>
                             {props.some(p => p.name === 'Finesse') && (
                               <div className="flex gap-2 flex-wrap items-center">
@@ -733,8 +745,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <select {...register(`equipment.${i}.armor_category`)} className="input w-36">
                               {ARMOR_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                             </select>
-                            <input {...register(`equipment.${i}.ac_formula`)} className="input flex-1 min-w-36"
-                              placeholder="AC formula (e.g. 16, 13+DEX, +2)" />
+                            <div className="flex items-center gap-2 flex-1">
+                              <span className="text-stone-400 text-sm shrink-0">AC:</span>
+                              <input {...register(`equipment.${i}.ac_formula`)} className="input flex-1"
+                                placeholder="e.g. 16, 13+DEX, +2" />
+                            </div>
                           </div>
                         )}
 

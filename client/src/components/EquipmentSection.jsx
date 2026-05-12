@@ -61,6 +61,33 @@ function parseCurrencyExpr(str) {
   try { const r = parseExpr(); return isFinite(r) ? r : null } catch { return null }
 }
 
+function normalizeDiceSchema(raw) {
+  const s = raw.replace(/\s+/g, '')
+  if (!s) return ''
+  if (s.toLowerCase() === 'all') return 'All'
+  const diceMap = {}
+  let constant = 0
+  const re = /([+\-]?)(\d+[dD]\d+|\d+)/g
+  let m
+  while ((m = re.exec(s)) !== null) {
+    const sign = m[1] === '-' ? -1 : 1
+    const term = m[2]
+    if (/[dD]/.test(term)) {
+      const [n, d] = term.toLowerCase().split('d')
+      const die = parseInt(d)
+      diceMap[die] = (diceMap[die] || 0) + sign * parseInt(n)
+    } else {
+      constant += sign * parseInt(term)
+    }
+  }
+  const parts = []
+  for (const die of Object.keys(diceMap).map(Number).sort((a, b) => a - b)) {
+    if (diceMap[die] !== 0) parts.push(`${diceMap[die]}d${die}`)
+  }
+  if (constant !== 0) parts.push(String(constant))
+  return parts.length > 0 ? parts.join('+').replace(/\+(-)/g, '$1') : '0'
+}
+
 function fmtAttack(val) {
   const n = Number(val)
   return !isNaN(n) && isFinite(n) && n > 0 ? `+${val}` : val
@@ -126,11 +153,11 @@ const WEAPON_PROPERTIES = [
 const CATEGORIES = [
   {
     type: 'weapon', label: 'Weapons', color: 'text-red-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false, versatile_damage_roll: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', charges_daily_trigger: '', charges_daily_schema: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false, versatile_damage_roll: '' }),
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', charges_daily_trigger: '', charges_daily_schema: '' }),
   },
   {
     type: 'usable', label: 'Usables', color: 'text-green-400',
@@ -138,7 +165,7 @@ const CATEGORIES = [
   },
   {
     type: 'misc', label: 'Misc', color: 'text-stone-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', charges_daily_trigger: '', charges_daily_schema: '' }),
   },
 ]
 
@@ -151,6 +178,8 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [weightErrors,    setWeightErrors]    = useState(new Set())
   const [priceErrors,     setPriceErrors]     = useState(new Set())
   const [rechargeErrors,  setRechargeErrors]  = useState(new Set())
+  const [triggerErrors,   setTriggerErrors]   = useState(new Set())
+  const [schemaErrors,    setSchemaErrors]    = useState(new Set())
   const [draggingEquipId, setDraggingEquipId] = useState(null)
 
   const dragIndexRef = useRef(null)
@@ -521,6 +550,28 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                     setRechargeErrors(prev => new Set([...prev, field.id])); return
                   }
                   setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  if (item.charges_recharge === 'daily') {
+                    const trigger = (item.charges_daily_trigger || '').trim()
+                    if (!trigger) {
+                      setTriggerErrors(prev => new Set([...prev, field.id])); return
+                    }
+                    setTriggerErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                    setValue(`equipment.${i}.charges_daily_trigger`, trigger.charAt(0).toUpperCase() + trigger.slice(1).toLowerCase(), { shouldDirty: true })
+                    const schema = (item.charges_daily_schema || '').replace(/\s+/g, '')
+                    if (!schema) {
+                      setSchemaErrors(prev => new Set([...prev, field.id])); return
+                    }
+                    const isAll = schema.toLowerCase() === 'all'
+                    const isValidDice = /^(\d+[dD]\d+|\d+)([+\-](\d+[dD]\d+|\d+))*$/.test(schema)
+                    if (!isAll && !isValidDice) {
+                      setSchemaErrors(prev => new Set([...prev, field.id])); return
+                    }
+                    setSchemaErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                    setValue(`equipment.${i}.charges_daily_schema`, normalizeDiceSchema(schema), { shouldDirty: true })
+                  } else {
+                    setTriggerErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                    setSchemaErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  }
                   stopEdit(field.id)
                 }
 
@@ -719,14 +770,49 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </>
                                   )}
                                 </div>
-                                <select {...register(`equipment.${i}.charges_recharge`, { onChange: () => setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n }) })} className={`input w-36 ${rechargeErrors.has(field.id) ? 'border-red-500' : ''}`}>
+                                <select {...register(`equipment.${i}.charges_recharge`, { onChange: e => {
+                                  setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                                  if (e.target.value !== 'none') {
+                                    const max = parseInt(watch(`equipment.${i}.charges_max`)) || 0
+                                    const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                    if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
+                                  }
+                                }})} className={`input w-36 ${rechargeErrors.has(field.id) ? 'border-red-500' : ''}`}>
                                   <option value="">— recharge —</option>
                                   <option value="none">No Recharge</option>
                                   <option value="short">Short Rest</option>
                                   <option value="long">Long Rest</option>
+                                  <option value="daily">Daily</option>
+                                  <option value="manual">Manual</option>
                                 </select>
                                 {rechargeErrors.has(field.id) && (
                                   <span className="text-red-400 text-xs">Select a recharge type.</span>
+                                )}
+                                {item.charges_recharge === 'daily' && (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-1">
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-stone-400 text-sm shrink-0">Trigger:</span>
+                                        <input
+                                          {...register(`equipment.${i}.charges_daily_trigger`, { onChange: () => setTriggerErrors(prev => { const n = new Set(prev); n.delete(field.id); return n }) })}
+                                          className={`input flex-1 ${triggerErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="e.g. Dawn" />
+                                      </div>
+                                      {triggerErrors.has(field.id) && (
+                                        <span className="text-red-400 text-xs">Trigger moment is required.</span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-stone-400 text-sm shrink-0">Amount:</span>
+                                        <input
+                                          {...register(`equipment.${i}.charges_daily_schema`, { onChange: () => setSchemaErrors(prev => { const n = new Set(prev); n.delete(field.id); return n }) })}
+                                          className={`input flex-1 ${schemaErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="e.g. 1d6+1 or All" />
+                                      </div>
+                                      {schemaErrors.has(field.id) && (
+                                        <span className="text-red-400 text-xs">Must be 'All' or a dice expression (e.g. 1d6+1).</span>
+                                      )}
+                                    </div>
+                                  </div>
                                 )}
                               </>
                             )}
@@ -873,8 +959,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     ? <span>{item.charges_current ?? 0} charges</span>
                                     : <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
                                   }
-                                  {(item.charges_recharge === 'short' || item.charges_recharge === 'long') && (
-                                    <span className="text-stone-500">({item.charges_recharge === 'short' ? 'Short Rest' : 'Long Rest'})</span>
+                                  {item.charges_recharge === 'short' && <span className="text-stone-500">(Short Rest)</span>}
+                                  {item.charges_recharge === 'long'  && <span className="text-stone-500">(Long Rest)</span>}
+                                  {item.charges_recharge === 'daily' && item.charges_daily_trigger && (
+                                    <span className="text-stone-500">({item.charges_daily_schema} at {item.charges_daily_trigger})</span>
                                   )}
                                 </>
                               )}

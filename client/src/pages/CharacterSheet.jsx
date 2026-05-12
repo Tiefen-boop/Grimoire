@@ -1552,6 +1552,8 @@ export default function CharacterSheet() {
   const [showPortraitView, setShowPortraitView] = useState(false)
   const [showShortRestModal, setShowShortRestModal] = useState(false)
   const [showLongRestDeadModal, setShowLongRestDeadModal] = useState(false)
+  const [dailyTriggerQueue, setDailyTriggerQueue] = useState([])
+  const [dailyTriggerModal, setDailyTriggerModal] = useState(null)
   const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
   const TABS = ['main', 'inventory', 'combat', 'roleplay']
@@ -1962,6 +1964,82 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }
   }
 
+  const DAILY_TRIGGER_ORDER = ['dawn', 'morning', 'noon', 'midday', 'afternoon', 'evening', 'dusk', 'sunset', 'midnight', 'night']
+  const DAILY_TRIGGER_EMOJI = { dawn: '🌅', morning: '🌤️', noon: '☀️', midday: '☀️', afternoon: '🌤️', evening: '🌆', dusk: '🌇', sunset: '🌇', midnight: '🌙', night: '🌙' }
+  function triggerSortKey(t) {
+    const idx = DAILY_TRIGGER_ORDER.indexOf((t || '').toLowerCase())
+    return idx === -1 ? 999 : idx
+  }
+  function triggerEmoji(t) {
+    return DAILY_TRIGGER_EMOJI[(t || '').toLowerCase()] || '✨'
+  }
+
+  function doDailyTrigger(trigger) {
+    const equipment = watch('equipment') || []
+    const items = equipment
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.has_charges && item.charges_recharge === 'daily' &&
+        (item.charges_daily_trigger || '').toLowerCase() === trigger.toLowerCase())
+      .map(({ item, index }) => ({
+        index,
+        name: item.name || 'Unknown item',
+        schema: item.charges_daily_schema || 'All',
+        current: parseInt(item.charges_current) || 0,
+        max: parseInt(item.charges_max) || 0,
+      }))
+    if (items.length === 0) return
+    const [first, ...rest] = items
+    setDailyTriggerQueue(rest)
+    setDailyTriggerModal({ ...first, editCurrent: first.current, rollResult: null, rolled: false })
+  }
+
+  function advanceDailyTrigger(newCurrent, index) {
+    setValue(`equipment.${index}.charges_current`, newCurrent, { shouldDirty: true })
+    if (dailyTriggerQueue.length === 0) {
+      setDailyTriggerModal(null)
+    } else {
+      const [next, ...rest] = dailyTriggerQueue
+      setDailyTriggerQueue(rest)
+      setDailyTriggerModal({ ...next, editCurrent: next.current, rollResult: null, rolled: false })
+    }
+  }
+
+  function skipDailyTrigger() {
+    if (dailyTriggerQueue.length === 0) {
+      setDailyTriggerModal(null)
+    } else {
+      const [next, ...rest] = dailyTriggerQueue
+      setDailyTriggerQueue(rest)
+      setDailyTriggerModal({ ...next, editCurrent: next.current, rollResult: null, rolled: false })
+    }
+  }
+
+  function rollDailySchema(schema) {
+    const s = schema.replace(/\s+/g, '')
+    const diceResults = []
+    let constant = 0
+    const re = /([+\-]?)(\d+[dD]\d+|\d+)/g
+    let m
+    while ((m = re.exec(s)) !== null) {
+      const sign = m[1] === '-' ? -1 : 1
+      const term = m[2]
+      if (/[dD]/.test(term)) {
+        const [n, d] = term.toLowerCase().split('d')
+        const rolls = []
+        for (let k = 0; k < parseInt(n); k++) rolls.push(Math.floor(Math.random() * parseInt(d)) + 1)
+        const sum = rolls.reduce((a, b) => a + b, 0)
+        diceResults.push({ label: term, sum: sign * sum, rolls })
+      } else {
+        constant += sign * parseInt(term)
+      }
+    }
+    const total = Math.max(0, diceResults.reduce((acc, d) => acc + d.sum, 0) + constant)
+    const parts = diceResults.map(d => `${d.label} [${d.rolls.join(', ')}]=${d.sum}`)
+    if (constant !== 0) parts.push(String(constant))
+    const detail = parts.join(' + ') + ` = ${total}`
+    return { total, detail }
+  }
+
   // Normalize trailing/leading zeros in any number input across the sheet
   useEffect(() => {
     function normalizeNumber(e) {
@@ -2295,18 +2373,59 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           )}
         </div>
         {activeTab === 'main' && !readOnly && (
-          <div className="flex flex-col gap-1.5">
-            <button type="button" onClick={doShortRest}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
-              <ClockIcon className="w-4 h-4 shrink-0" /> Short Rest
-            </button>
-            <button type="button" onClick={doLongRest}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
-              <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
-            </button>
+          <div className="flex flex-row gap-1.5 items-start">
+            <div className="flex flex-col gap-1.5">
+              <button type="button" onClick={doShortRest}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
+                <ClockIcon className="w-4 h-4 shrink-0" /> Short Rest
+              </button>
+              <button type="button" onClick={doLongRest}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
+                <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
+              </button>
+            </div>
+            {/* Trigger columns — desktop only */}
+            {(() => {
+              const triggers = [...new Set(
+                (watch('equipment') || [])
+                  .filter(item => item.has_charges && item.charges_recharge === 'daily' && item.charges_daily_trigger)
+                  .map(item => item.charges_daily_trigger)
+              )].sort((a, b) => triggerSortKey(a) - triggerSortKey(b))
+              const cols = []
+              for (let i = 0; i < triggers.length; i += 2) cols.push(triggers.slice(i, i + 2))
+              return cols.map((col, ci) => (
+                <div key={ci} className="hidden sm:flex flex-col gap-1.5">
+                  {col.map(trigger => (
+                    <button key={trigger} type="button" onClick={() => doDailyTrigger(trigger)}
+                      className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap text-amber-300 border-amber-800 hover:bg-amber-900/40">
+                      {triggerEmoji(trigger)} {trigger}
+                    </button>
+                  ))}
+                </div>
+              ))
+            })()}
           </div>
         )}
       </div>
+      {/* Trigger buttons — mobile only, below portrait row */}
+      {activeTab === 'main' && !readOnly && (() => {
+        const triggers = [...new Set(
+          (watch('equipment') || [])
+            .filter(item => item.has_charges && item.charges_recharge === 'daily' && item.charges_daily_trigger)
+            .map(item => item.charges_daily_trigger)
+        )].sort((a, b) => triggerSortKey(a) - triggerSortKey(b))
+        if (!triggers.length) return null
+        return (
+          <div className="flex sm:hidden flex-wrap gap-1.5 mb-3">
+            {triggers.map(trigger => (
+              <button key={trigger} type="button" onClick={() => doDailyTrigger(trigger)}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap text-amber-300 border-amber-800 hover:bg-amber-900/40">
+                {triggerEmoji(trigger)} {trigger}
+              </button>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Basic Info */}
       <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''} hidden={activeTab !== 'main'}>
@@ -3670,6 +3789,46 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           })}
         </div>
       </Modal>
+
+      {/* Daily trigger recharge modal */}
+      {dailyTriggerModal && (() => {
+        const { index, name, schema, max, editCurrent, rollResult, rolled } = dailyTriggerModal
+        const isAll = (schema || '').toLowerCase() === 'all'
+        return (
+          <Modal open title={isAll ? `Fully recharge ${name}` : `Add ${schema} charges to ${name}`}
+            onCancel={skipDailyTrigger} cancelLabel="Skip"
+            onConfirm={() => advanceDailyTrigger(editCurrent, index)} confirmLabel="Confirm"
+            danger>
+            <div className="space-y-3 mt-1">
+              <div className="flex items-center gap-2 text-sm text-stone-300">
+                <span>Charges:</span>
+                <input type="number" min={0} max={max} value={editCurrent}
+                  onChange={e => setDailyTriggerModal(prev => ({ ...prev, editCurrent: Math.min(max, Math.max(0, parseInt(e.target.value) || 0)) }))}
+                  className="input w-16 text-center" />
+                <span className="text-stone-500">/ {max}</span>
+              </div>
+              {isAll ? (
+                <button type="button"
+                  onClick={() => setDailyTriggerModal(prev => ({ ...prev, editCurrent: max }))}
+                  className="btn btn-secondary btn-sm">Fill</button>
+              ) : (
+                <div className="space-y-1">
+                  <button type="button"
+                    disabled={rolled}
+                    onClick={() => {
+                      const { total, detail } = rollDailySchema(schema)
+                      setDailyTriggerModal(prev => ({ ...prev, editCurrent: Math.min(max, prev.editCurrent + total), rollResult: detail, rolled: true }))
+                    }}
+                    className={`btn btn-secondary btn-sm text-amber-300 border-amber-800 hover:bg-amber-900/40 ${rolled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    Roll for me
+                  </button>
+                  {rollResult && <p className="text-xs text-stone-400 mt-1">{rollResult}</p>}
+                </div>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* Save button at bottom too */}
       <div className="flex justify-end gap-2 mt-2 flex-wrap">

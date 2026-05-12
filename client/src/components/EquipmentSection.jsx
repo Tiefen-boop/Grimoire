@@ -296,6 +296,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [attuneModal,       setAttuneModal]       = useState(null)  // { names: [] }
   const [equipModal,        setEquipModal]        = useState(null)  // { isShield, existingName, newName }
   const [nonProfModal,      setNonProfModal]      = useState(null)  // { name, pendingIndex }
+  const [deleteModal,       setDeleteModal]       = useState(null)  // { index, name }
 
   // Property add form
   const [propFormFor, setPropFormFor] = useState(null)  // field.id or null
@@ -344,6 +345,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     setExpanded(p => { const n = new Set(p); n.delete(fid); return n })
     if (propFormFor === fid) setPropFormFor(null)
     remove(i)
+  }
+  function confirmDelete() {
+    doRemove(deleteModal.index)
+    setDeleteModal(null)
   }
   function adjustAmount(i, delta) {
     const curr = parseInt(watch(`equipment.${i}.amount`)) || 0
@@ -599,14 +604,14 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 if (category) setValue(`equipment.${i}.armor_category`, category, { shouldDirty: true })
                               }
                             }
-                          })} className="input flex-1 min-w-32"
+                          })} className="input flex-1 min-w-full sm:min-w-32"
                             placeholder="Name" autoFocus={!item.name} />
                           <input {...register(`equipment.${i}.price`, {
                             onChange: () => setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                          })} className={`input w-24 ${priceErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Price (e.g. 50GP)" />
+                          })} className={`input w-24 ${priceErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Price" />
                           <input {...register(`equipment.${i}.weight`, {
                             onChange: () => setWeightErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                          })} className={`input w-24 ${weightErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Weight (e.g. 5lb)" />
+                          })} className={`input w-24 ${weightErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Weight" />
                           <div className="flex items-center shrink-0">
                             <button type="button" onClick={() => adjustAmount(i, -1)}
                               className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-l-lg text-stone-200 text-sm leading-none">−</button>
@@ -616,11 +621,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           </div>
                           <button type="button"
                             onClick={confirmEdit}
-                            className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
+                            className="hidden sm:block text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
                             <CheckIcon className="w-4 h-4" />
                           </button>
-                          <button type="button" onClick={() => doRemove(i)}
-                            className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                          <button type="button" onClick={() => setDeleteModal({ index: i, name: item.name || 'this item' })}
+                            className="hidden sm:block text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
                             <TrashIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -822,6 +827,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         {/* Description */}
                         <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
                           rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <button type="button" onClick={confirmEdit}
+                          className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
+                          Save
+                        </button>
                       </div>
 
                     ) : (
@@ -922,7 +931,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
                                   <PencilIcon className="w-4 h-4" />
                                 </button>
-                                <button type="button" onClick={e => { e.stopPropagation(); doRemove(i) }}
+                                <button type="button" onClick={e => { e.stopPropagation(); setDeleteModal({ index: i, name: item.name || 'this item' }) }}
                                   className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
                                   <TrashIcon className="w-4 h-4" />
                                 </button>
@@ -1065,6 +1074,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       <Modal open={!!useModal} title="Use item?"
         onConfirm={confirmUse} onCancel={() => setUseModal(null)} confirmLabel="Use">
         Use <strong>{useModal?.name}</strong>?
+      </Modal>
+
+      <Modal open={!!deleteModal} title="Delete item?" danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteModal(null)}
+        confirmLabel="Delete">
+        Delete <strong>{deleteModal?.name}</strong>?
       </Modal>
 
       <Modal open={!!zeroModal} title="Item depleted" danger

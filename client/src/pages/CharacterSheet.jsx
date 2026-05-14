@@ -1556,8 +1556,8 @@ export default function CharacterSheet() {
   const [dailyTriggerModal, setDailyTriggerModal] = useState(null)
   const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
-  const TABS = ['main', 'inventory', 'combat', 'roleplay']
-  const TAB_LABELS = { main: 'Main', inventory: '🎒 Inventory', combat: '⚔️ Combat', roleplay: '📖 Roleplay' }
+  const TABS = ['main', 'inventory', 'combat', 'spells', 'roleplay']
+  const TAB_LABELS = { main: ['👤', 'Main'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
   const [activeTab, setActiveTabState] = useState(() => {
     try { const t = localStorage.getItem('grimoire_active_tab'); return TABS.includes(t) ? t : 'main' } catch { return 'main' }
   })
@@ -2241,7 +2241,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchName = watch('name')
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="flex flex-col min-h-[calc(100dvh-6.5rem)]">
       <style>{`
         @keyframes xp-shimmer {
           0%, 100% { box-shadow: 0 0 6px 2px rgba(234,179,8,0.5), 0 0 14px 4px rgba(202,138,4,0.25); }
@@ -2313,10 +2313,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <div className="flex border-b border-stone-700 mb-4">
         {TABS.map(t => (
           <button key={t} type="button" onClick={() => setTab(t)}
-            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
               activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
             }`}>
-            {TAB_LABELS[t]}
+            <span className="text-base">{TAB_LABELS[t][0]}</span>
+            <span className="text-xs">{TAB_LABELS[t][1]}</span>
           </button>
         ))}
       </div>
@@ -3268,7 +3269,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         sectionKey="Features, Proficiencies & Languages"
         defaultOpen={false}
         locked={activeTab !== 'main'}
-        hidden={activeTab === 'inventory'}>
+        hidden={activeTab === 'inventory' || activeTab === 'spells'}>
 
         <div className={activeTab === 'roleplay' ? 'hidden' : ''}>
         <SubSection title="Features" bare={activeTab === 'combat'}>
@@ -3547,10 +3548,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         return (
           <Section key={field.id}
             title={<span className="flex items-baseline gap-1.5 text-yellow-300">✨ SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
-            sectionKey={`Spellcasting-${field.id}`}
-            defaultOpen={false}
+            sectionKey={`Spellcasting-${cls.name || i}`}
+            defaultOpen={true}
             locked={activeTab === 'combat'}
-            hidden={(activeTab !== 'main' && activeTab !== 'combat') || (hasNonProfArmor && activeTab === 'combat')}>
+            hidden={activeTab !== 'main' && activeTab !== 'spells'}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
@@ -3830,6 +3831,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         )
       })()}
 
+      <div className="flex-1" />
       {/* Save button at bottom too */}
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         {error && <span className="text-red-400 text-sm self-center">{error}</span>}

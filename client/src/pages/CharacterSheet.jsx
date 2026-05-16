@@ -1118,27 +1118,37 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                       <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
                         {isEditingSpell && !readOnly ? (
                           <div className="px-3 py-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) stopEditSpell(field.id) }}>
-                            {/* Row 1: name, cast time, range + action buttons */}
+                            {/* Row 1: name (+ mobile trash), cast time, range + desktop action buttons */}
                             <div className="flex gap-2 flex-wrap items-center">
-                              <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
-                              <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input w-28" placeholder="Cast time" />
-                              <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input w-24" placeholder="Range" />
+                              <div className="flex items-center gap-2 min-w-full sm:flex-1 sm:min-w-32">
+                                <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1" placeholder="Spell name" autoFocus={!sp.name} />
+                                <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
+                                  className="sm:hidden text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <div className="flex gap-2 min-w-full sm:contents">
+                                <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input flex-1 sm:flex-none sm:w-36" placeholder="Cast time" />
+                                <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input flex-1 sm:flex-none sm:w-24" placeholder="Range" />
+                              </div>
                               <button type="button" onClick={() => stopEditSpell(field.id)}
-                                className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                className="hidden sm:flex text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <CheckIcon className="w-4 h-4" />
                               </button>
                               <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
-                                className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                className="hidden sm:flex text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <TrashIcon className="w-4 h-4" />
                               </button>
                             </div>
                             {/* Row 2: school, duration, prepared, ritual */}
                             <div className="flex gap-2 flex-wrap items-center">
-                              <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input w-40">
-                                <option value="">— School —</option>
-                                {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                              <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input w-32" placeholder="Duration" />
+                              <div className="flex gap-2 min-w-full sm:contents">
+                                <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input flex-1 sm:flex-none sm:w-40">
+                                  <option value="">— School —</option>
+                                  {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                                <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input flex-1 sm:flex-none sm:w-36" placeholder="Duration" />
+                              </div>
                               {lvl > 0 && spellPreparation !== 'known' && (
                                 <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
                                   <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
@@ -1174,6 +1184,10 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                               placeholder="Description (optional)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            <button type="button" onClick={() => stopEditSpell(field.id)}
+                              className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
+                              Save
+                            </button>
                           </div>
                         ) : (
                           <div
@@ -1556,8 +1570,8 @@ export default function CharacterSheet() {
   const [dailyTriggerModal, setDailyTriggerModal] = useState(null)
   const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
-  const TABS = ['main', 'inventory', 'combat', 'roleplay']
-  const TAB_LABELS = { main: 'Main', inventory: '🎒 Inventory', combat: '⚔️ Combat', roleplay: '📖 Roleplay' }
+  const TABS = ['main', 'inventory', 'combat', 'spells', 'roleplay']
+  const TAB_LABELS = { main: ['👤', 'Main'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
   const [activeTab, setActiveTabState] = useState(() => {
     try { const t = localStorage.getItem('grimoire_active_tab'); return TABS.includes(t) ? t : 'main' } catch { return 'main' }
   })
@@ -2241,7 +2255,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchName = watch('name')
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="flex flex-col min-h-[calc(100dvh-6.5rem)]">
       <style>{`
         @keyframes xp-shimmer {
           0%, 100% { box-shadow: 0 0 6px 2px rgba(234,179,8,0.5), 0 0 14px 4px rgba(202,138,4,0.25); }
@@ -2313,10 +2327,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       <div className="flex border-b border-stone-700 mb-4">
         {TABS.map(t => (
           <button key={t} type="button" onClick={() => setTab(t)}
-            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
               activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
             }`}>
-            {TAB_LABELS[t]}
+            <span className="text-base">{TAB_LABELS[t][0]}</span>
+            <span className="text-xs">{TAB_LABELS[t][1]}</span>
           </button>
         ))}
       </div>
@@ -3268,7 +3283,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         sectionKey="Features, Proficiencies & Languages"
         defaultOpen={false}
         locked={activeTab !== 'main'}
-        hidden={activeTab === 'inventory'}>
+        hidden={activeTab === 'inventory' || activeTab === 'spells'}>
 
         <div className={activeTab === 'roleplay' ? 'hidden' : ''}>
         <SubSection title="Features" bare={activeTab === 'combat'}>
@@ -3547,10 +3562,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         return (
           <Section key={field.id}
             title={<span className="flex items-baseline gap-1.5 text-yellow-300">✨ SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
-            sectionKey={`Spellcasting-${field.id}`}
-            defaultOpen={false}
+            sectionKey={`Spellcasting-${cls.name || i}`}
+            defaultOpen={true}
             locked={activeTab === 'combat'}
-            hidden={(activeTab !== 'main' && activeTab !== 'combat') || (hasNonProfArmor && activeTab === 'combat')}>
+            hidden={activeTab !== 'main' && activeTab !== 'spells'}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
@@ -3830,6 +3845,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         )
       })()}
 
+      <div className="flex-1" />
       {/* Save button at bottom too */}
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         {error && <span className="text-red-400 text-sm self-center">{error}</span>}

@@ -1571,7 +1571,7 @@ export default function CharacterSheet() {
   const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
   const TABS = ['main', 'inventory', 'combat', 'spells', 'roleplay']
-  const TAB_LABELS = { main: ['👤', 'Main'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
+  const TAB_LABELS = { main: ['👤', 'General'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
   const [activeTab, setActiveTabState] = useState(() => {
     try { const t = localStorage.getItem('grimoire_active_tab'); return TABS.includes(t) ? t : 'main' } catch { return 'main' }
   })
@@ -3078,7 +3078,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Attacks */}
-      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'combat'}>
         {(() => {
           const allEquipment = watch('equipment') || []
           const weapons = allEquipment.map((item, i) => ({ item, i })).filter(({ item }) => item.type === 'weapon')
@@ -3547,7 +3547,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Equipment & Currency */}
-      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'main' && activeTab !== 'inventory'}>
+      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'inventory'}>
         <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly}
           onEditingChange={setEquipmentHasEditing}
           weaponProfs={watchedWeaponProfs}
@@ -3565,7 +3565,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             sectionKey={`Spellcasting-${cls.name || i}`}
             defaultOpen={true}
             locked={activeTab === 'combat'}
-            hidden={activeTab !== 'main' && activeTab !== 'spells'}>
+            hidden={activeTab !== 'spells'}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
@@ -3584,7 +3584,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })}
 
       {/* Traits & Features */}
-      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { label: 'Personality Traits', name: 'personality_traits' },
@@ -3613,7 +3613,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Backstory & Appearance */}
-      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-3">
           {[
             { label: 'Age', name: 'age' },
@@ -3650,7 +3650,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Notes */}
-      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <textarea dir="auto" rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
 

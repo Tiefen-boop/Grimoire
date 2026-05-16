@@ -1118,27 +1118,37 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                       <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
                         {isEditingSpell && !readOnly ? (
                           <div className="px-3 py-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) stopEditSpell(field.id) }}>
-                            {/* Row 1: name, cast time, range + action buttons */}
+                            {/* Row 1: name (+ mobile trash), cast time, range + desktop action buttons */}
                             <div className="flex gap-2 flex-wrap items-center">
-                              <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
-                              <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input w-28" placeholder="Cast time" />
-                              <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input w-24" placeholder="Range" />
+                              <div className="flex items-center gap-2 min-w-full sm:flex-1 sm:min-w-32">
+                                <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1" placeholder="Spell name" autoFocus={!sp.name} />
+                                <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
+                                  className="sm:hidden text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <div className="flex gap-2 min-w-full sm:contents">
+                                <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input flex-1 sm:flex-none sm:w-36" placeholder="Cast time" />
+                                <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input flex-1 sm:flex-none sm:w-24" placeholder="Range" />
+                              </div>
                               <button type="button" onClick={() => stopEditSpell(field.id)}
-                                className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                className="hidden sm:flex text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <CheckIcon className="w-4 h-4" />
                               </button>
                               <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
-                                className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                className="hidden sm:flex text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <TrashIcon className="w-4 h-4" />
                               </button>
                             </div>
                             {/* Row 2: school, duration, prepared, ritual */}
                             <div className="flex gap-2 flex-wrap items-center">
-                              <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input w-40">
-                                <option value="">— School —</option>
-                                {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                              <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input w-32" placeholder="Duration" />
+                              <div className="flex gap-2 min-w-full sm:contents">
+                                <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input flex-1 sm:flex-none sm:w-40">
+                                  <option value="">— School —</option>
+                                  {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                                <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input flex-1 sm:flex-none sm:w-36" placeholder="Duration" />
+                              </div>
                               {lvl > 0 && spellPreparation !== 'known' && (
                                 <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
                                   <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
@@ -1174,6 +1184,10 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                               placeholder="Description (optional)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            <button type="button" onClick={() => stopEditSpell(field.id)}
+                              className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
+                              Save
+                            </button>
                           </div>
                         ) : (
                           <div

@@ -4,6 +4,12 @@ import { PlusIcon, TrashIcon, PencilIcon, CheckIcon, ChevronDownIcon, SparklesIc
 import Modal from './Modal'
 import { evalFormula } from '../utils/formulaEval'
 
+function checkArmorProficiency(item, armorProfs) {
+  if (!item.armor_category) return null
+  const map = { light: 'Light', medium: 'Medium', heavy: 'Heavy', shield: 'Shield' }
+  return (armorProfs || []).includes(map[item.armor_category] || '')
+}
+
 const WEAPON_TYPES = [
   { value: 'simple-melee',   label: 'Simple Melee' },
   { value: 'simple-ranged',  label: 'Simple Ranged' },
@@ -53,6 +59,33 @@ function parseCurrencyExpr(str) {
     return isNaN(n) ? 0 : n
   }
   try { const r = parseExpr(); return isFinite(r) ? r : null } catch { return null }
+}
+
+function normalizeDiceSchema(raw) {
+  const s = raw.replace(/\s+/g, '')
+  if (!s) return ''
+  if (s.toLowerCase() === 'all') return 'All'
+  const diceMap = {}
+  let constant = 0
+  const re = /([+\-]?)(\d+[dD]\d+|\d+)/g
+  let m
+  while ((m = re.exec(s)) !== null) {
+    const sign = m[1] === '-' ? -1 : 1
+    const term = m[2]
+    if (/[dD]/.test(term)) {
+      const [n, d] = term.toLowerCase().split('d')
+      const die = parseInt(d)
+      diceMap[die] = (diceMap[die] || 0) + sign * parseInt(n)
+    } else {
+      constant += sign * parseInt(term)
+    }
+  }
+  const parts = []
+  for (const die of Object.keys(diceMap).map(Number).sort((a, b) => a - b)) {
+    if (diceMap[die] !== 0) parts.push(`${diceMap[die]}d${die}`)
+  }
+  if (constant !== 0) parts.push(String(constant))
+  return parts.length > 0 ? parts.join('+').replace(/\+(-)/g, '$1') : '0'
 }
 
 function fmtAttack(val) {
@@ -120,11 +153,11 @@ const WEAPON_PROPERTIES = [
 const CATEGORIES = [
   {
     type: 'weapon', label: 'Weapons', color: 'text-red-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false, versatile_damage_roll: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'weapon', attuned: false, weapon_class: 'simple', weapon_range: 'melee', weapon_specific: '', attack_modifier: '', damage_roll: '', properties: [], has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', charges_daily_trigger: '', charges_daily_schema: '', finesse_active: false, finesse_attack_modifier: '', finesse_damage_roll: '', versatile_active: false, versatile_damage_roll: '' }),
   },
   {
     type: 'armor', label: 'Armor', color: 'text-blue-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'armor', attuned: false, armor_category: 'light', ac_formula: '', equipped: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', charges_daily_trigger: '', charges_daily_schema: '' }),
   },
   {
     type: 'usable', label: 'Usables', color: 'text-green-400',
@@ -132,7 +165,7 @@ const CATEGORIES = [
   },
   {
     type: 'misc', label: 'Misc', color: 'text-stone-400',
-    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '' }),
+    mkDefault: () => ({ name: '', weight: '', price: '', amount: '1', description: '', type: 'misc', attuned: false, has_charges: false, charges_current: 0, charges_max: 0, charges_recharge: '', charges_daily_trigger: '', charges_daily_schema: '' }),
   },
 ]
 
@@ -144,6 +177,9 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [weaponErrors,    setWeaponErrors]    = useState(new Set())
   const [weightErrors,    setWeightErrors]    = useState(new Set())
   const [priceErrors,     setPriceErrors]     = useState(new Set())
+  const [rechargeErrors,  setRechargeErrors]  = useState(new Set())
+  const [triggerErrors,   setTriggerErrors]   = useState(new Set())
+  const [schemaErrors,    setSchemaErrors]    = useState(new Set())
   const [draggingEquipId, setDraggingEquipId] = useState(null)
 
   const dragIndexRef = useRef(null)
@@ -259,6 +295,8 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   const [chargesEmptyModal, setChargesEmptyModal] = useState(null)  // { name }
   const [attuneModal,       setAttuneModal]       = useState(null)  // { names: [] }
   const [equipModal,        setEquipModal]        = useState(null)  // { isShield, existingName, newName }
+  const [nonProfModal,      setNonProfModal]      = useState(null)  // { name, pendingIndex }
+  const [deleteModal,       setDeleteModal]       = useState(null)  // { index, name }
 
   // Property add form
   const [propFormFor, setPropFormFor] = useState(null)  // field.id or null
@@ -308,6 +346,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     if (propFormFor === fid) setPropFormFor(null)
     remove(i)
   }
+  function confirmDelete() {
+    doRemove(deleteModal.index)
+    setDeleteModal(null)
+  }
   function adjustAmount(i, delta) {
     const curr = parseInt(watch(`equipment.${i}.amount`)) || 0
     setValue(`equipment.${i}.amount`, String(Math.max(0, curr + delta)), { shouldDirty: true })
@@ -335,6 +377,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     }
     return ac
   }
+  function doEquip(i, willEquip) {
+    const updatedEquip = allEquip.map((x, idx) => idx === i ? { ...x, equipped: willEquip } : x)
+    setValue(`equipment.${i}.equipped`, willEquip, { shouldDirty: true })
+    setValue('armor_class', computeAC(updatedEquip), { shouldDirty: true })
+  }
   function handleEquip(i) {
     const item     = allEquip[i]
     const isShield = item.armor_category === 'shield'
@@ -348,10 +395,12 @@ export default function EquipmentSection({ control, register, watch, setValue, r
         setEquipModal({ isShield, existingName: conflict.name || 'Unnamed', newName: item.name || 'Unnamed' })
         return
       }
+      if (checkArmorProficiency(item, armorProfs) === false) {
+        setNonProfModal({ name: item.name || 'this armor', pendingIndex: i })
+        return
+      }
     }
-    const updatedEquip = allEquip.map((x, idx) => idx === i ? { ...x, equipped: willEquip } : x)
-    setValue(`equipment.${i}.equipped`, willEquip, { shouldDirty: true })
-    setValue('armor_class', computeAC(updatedEquip), { shouldDirty: true })
+    doEquip(i, willEquip)
   }
   function handleUseClick(i) {
     setUseModal({ index: i, name: allEquip[i]?.name || 'this item', isCharge: false })
@@ -369,7 +418,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       const curr = parseInt(watch(`equipment.${index}.charges_current`)) || 0
       const next = Math.max(0, curr - 1)
       setValue(`equipment.${index}.charges_current`, next, { shouldDirty: true })
-      if (next <= 0) setChargesEmptyModal({ name: allEquip[index]?.name || 'this item' })
+      if (next <= 0) {
+        if (allEquip[index]?.charges_recharge === 'none') {
+          setValue(`equipment.${index}.has_charges`, false, { shouldDirty: true })
+        } else {
+          setChargesEmptyModal({ name: allEquip[index]?.name || 'this item' })
+        }
+      }
     } else {
       const next = (parseInt(watch(`equipment.${index}.amount`)) || 0) - 1
       if (next <= 0) {
@@ -473,7 +528,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                 const isExpanded = expanded.has(field.id)
                 const isEditing  = editing.has(field.id)
                 const item       = allEquip[i] || {}
-                const props      = item.properties || []
+                const props      = (item.properties || []).slice().sort((a, b) => a.name.localeCompare(b.name))
 
                 function confirmEdit() {
                   if (cat.type === 'weapon' && !item.weapon_specific) {
@@ -496,6 +551,32 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                     const m = item.price.match(/^([0-9]+)\s*(cp|CP|sp|SP|ep|EP|gp|GP|pp|PP)$/)
                     if (m) setValue(`equipment.${i}.price`, `${parseInt(m[1], 10)} ${m[2].toUpperCase()}`, { shouldDirty: true })
                   }
+                  if (cat.type !== 'usable' && item.has_charges && !item.charges_recharge) {
+                    setRechargeErrors(prev => new Set([...prev, field.id])); return
+                  }
+                  setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  if (item.charges_recharge === 'daily') {
+                    const trigger = (item.charges_daily_trigger || '').trim()
+                    if (!trigger) {
+                      setTriggerErrors(prev => new Set([...prev, field.id])); return
+                    }
+                    setTriggerErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                    setValue(`equipment.${i}.charges_daily_trigger`, trigger.charAt(0).toUpperCase() + trigger.slice(1).toLowerCase(), { shouldDirty: true })
+                    const schema = (item.charges_daily_schema || '').replace(/\s+/g, '')
+                    if (!schema) {
+                      setSchemaErrors(prev => new Set([...prev, field.id])); return
+                    }
+                    const isAll = schema.toLowerCase() === 'all'
+                    const isValidDice = /^(\d+[dD]\d+|\d+)([+\-](\d+[dD]\d+|\d+))*$/.test(schema)
+                    if (!isAll && !isValidDice) {
+                      setSchemaErrors(prev => new Set([...prev, field.id])); return
+                    }
+                    setSchemaErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                    setValue(`equipment.${i}.charges_daily_schema`, normalizeDiceSchema(schema), { shouldDirty: true })
+                  } else {
+                    setTriggerErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                    setSchemaErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                  }
                   stopEdit(field.id)
                 }
 
@@ -507,6 +588,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                       <div className="p-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) confirmEdit() }}>
                         {/* Base row */}
                         <div className="flex gap-2 flex-wrap items-center">
+                          <div className="flex items-center gap-2 min-w-full sm:flex-1 sm:min-w-32">
                           <input {...register(`equipment.${i}.name`, {
                             onChange: e => {
                               if (cat.type === 'weapon') {
@@ -523,14 +605,19 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 if (category) setValue(`equipment.${i}.armor_category`, category, { shouldDirty: true })
                               }
                             }
-                          })} className="input flex-1 min-w-32"
+                          })} className="input flex-1"
                             placeholder="Name" autoFocus={!item.name} />
+                          <button type="button" onClick={() => setDeleteModal({ index: i, name: item.name || 'this item' })}
+                            className="sm:hidden text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                          </div>
                           <input {...register(`equipment.${i}.price`, {
                             onChange: () => setPriceErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                          })} className={`input w-24 ${priceErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Price (e.g. 50GP)" />
+                          })} className={`input w-24 ${priceErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Price" />
                           <input {...register(`equipment.${i}.weight`, {
                             onChange: () => setWeightErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
-                          })} className={`input w-24 ${weightErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Weight (e.g. 5lb)" />
+                          })} className={`input w-24 ${weightErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="Weight" />
                           <div className="flex items-center shrink-0">
                             <button type="button" onClick={() => adjustAmount(i, -1)}
                               className="px-2 py-2 bg-stone-700 hover:bg-stone-600 rounded-l-lg text-stone-200 text-sm leading-none">−</button>
@@ -540,11 +627,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                           </div>
                           <button type="button"
                             onClick={confirmEdit}
-                            className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
+                            className="hidden sm:block text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Done">
                             <CheckIcon className="w-4 h-4" />
                           </button>
-                          <button type="button" onClick={() => doRemove(i)}
-                            className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                          <button type="button" onClick={() => setDeleteModal({ index: i, name: item.name || 'this item' })}
+                            className="hidden sm:block text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
                             <TrashIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -584,11 +671,17 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             {weaponErrors.has(field.id) && (
                               <p className="text-red-400 text-xs">Select a specific weapon type before saving.</p>
                             )}
-                            <div className="flex gap-2 flex-wrap">
-                              <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1 min-w-36"
-                                placeholder="Attack modifier (e.g. STR+prof)" />
-                              <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1 min-w-36"
-                                placeholder="Damage roll (e.g. 1d8+STR[slashing])" />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-stone-400 text-sm shrink-0 w-8">Att:</span>
+                                <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1"
+                                  placeholder="e.g. STR+prof" />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-stone-400 text-sm shrink-0 w-8">Dmg:</span>
+                                <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1"
+                                  placeholder="e.g. 1d8+STR[slashing]" />
+                              </div>
                             </div>
                             {props.some(p => p.name === 'Finesse') && (
                               <div className="flex gap-2 flex-wrap items-center">
@@ -652,8 +745,11 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <select {...register(`equipment.${i}.armor_category`)} className="input w-36">
                               {ARMOR_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                             </select>
-                            <input {...register(`equipment.${i}.ac_formula`)} className="input flex-1 min-w-36"
-                              placeholder="AC formula (e.g. 16, 13+DEX, +2)" />
+                            <div className="flex items-center gap-2 flex-1">
+                              <span className="text-stone-400 text-sm shrink-0">AC:</span>
+                              <input {...register(`equipment.${i}.ac_formula`)} className="input flex-1"
+                                placeholder="e.g. 16, 13+DEX, +2" />
+                            </div>
                           </div>
                         )}
 
@@ -671,37 +767,85 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     {...register(`equipment.${i}.charges_current`, {
                                       valueAsNumber: true,
                                       onChange: e => {
+                                        if (item.charges_recharge === 'none') return
                                         const max = parseInt(watch(`equipment.${i}.charges_max`)) || 0
                                         const val = parseInt(e.target.value) || 0
                                         if (val > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
                                       }
                                     })}
                                     className="input w-16 text-center" placeholder="0" />
-                                  <span>/</span>
-                                  <input type="number" min={1}
-                                    {...register(`equipment.${i}.charges_max`, {
-                                      valueAsNumber: true,
-                                      onChange: e => {
-                                        const max = parseInt(e.target.value) || 0
-                                        const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
-                                        if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
-                                      }
-                                    })}
-                                    className="input w-16 text-center" placeholder="1" />
+                                  {item.charges_recharge !== 'none' && (
+                                    <>
+                                      <span>/</span>
+                                      <input type="number" min={1}
+                                        {...register(`equipment.${i}.charges_max`, {
+                                          valueAsNumber: true,
+                                          onChange: e => {
+                                            const max = parseInt(e.target.value) || 0
+                                            const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                            if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
+                                          }
+                                        })}
+                                        className="input w-16 text-center" placeholder="1" />
+                                    </>
+                                  )}
                                 </div>
-                                <select {...register(`equipment.${i}.charges_recharge`)} className="input w-36">
+                                <select {...register(`equipment.${i}.charges_recharge`, { onChange: e => {
+                                  setRechargeErrors(prev => { const n = new Set(prev); n.delete(field.id); return n })
+                                  if (e.target.value !== 'none') {
+                                    const max = parseInt(watch(`equipment.${i}.charges_max`)) || 0
+                                    const cur = parseInt(watch(`equipment.${i}.charges_current`)) || 0
+                                    if (cur > max) setValue(`equipment.${i}.charges_current`, max, { shouldDirty: true })
+                                  }
+                                }})} className={`input w-36 ${rechargeErrors.has(field.id) ? 'border-red-500' : ''}`}>
                                   <option value="">— recharge —</option>
+                                  <option value="none">No Recharge</option>
                                   <option value="short">Short Rest</option>
                                   <option value="long">Long Rest</option>
+                                  <option value="daily">Daily</option>
+                                  <option value="manual">Manual</option>
                                 </select>
+                                {rechargeErrors.has(field.id) && (
+                                  <span className="text-red-400 text-xs">Select a recharge type.</span>
+                                )}
+                                {item.charges_recharge === 'daily' && (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-1">
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-stone-400 text-sm shrink-0">Trigger:</span>
+                                        <input
+                                          {...register(`equipment.${i}.charges_daily_trigger`, { onChange: () => setTriggerErrors(prev => { const n = new Set(prev); n.delete(field.id); return n }) })}
+                                          className={`input flex-1 ${triggerErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="e.g. Dawn" />
+                                      </div>
+                                      {triggerErrors.has(field.id) && (
+                                        <span className="text-red-400 text-xs">Trigger moment is required.</span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-stone-400 text-sm shrink-0">Amount:</span>
+                                        <input
+                                          {...register(`equipment.${i}.charges_daily_schema`, { onChange: () => setSchemaErrors(prev => { const n = new Set(prev); n.delete(field.id); return n }) })}
+                                          className={`input flex-1 ${schemaErrors.has(field.id) ? 'border-red-500' : ''}`} placeholder="e.g. 1d6+1 or All" />
+                                      </div>
+                                      {schemaErrors.has(field.id) && (
+                                        <span className="text-red-400 text-xs">Must be 'All' or a dice expression (e.g. 1d6+1).</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>
                         )}
 
                         {/* Description */}
-                        <textarea {...register(`equipment.${i}.description`)} className="input w-full resize-none"
+                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
                           rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <button type="button" onClick={confirmEdit}
+                          className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
+                          Save
+                        </button>
                       </div>
 
                     ) : (
@@ -802,7 +946,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   className="text-stone-500 hover:text-stone-300 p-1 rounded hover:bg-stone-700 shrink-0">
                                   <PencilIcon className="w-4 h-4" />
                                 </button>
-                                <button type="button" onClick={e => { e.stopPropagation(); doRemove(i) }}
+                                <button type="button" onClick={e => { e.stopPropagation(); setDeleteModal({ index: i, name: item.name || 'this item' }) }}
                                   className="text-stone-500 hover:text-red-400 p-1 rounded hover:bg-stone-700 shrink-0">
                                   <TrashIcon className="w-4 h-4" />
                                 </button>
@@ -818,6 +962,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             (cat.type !== 'usable' && item.has_charges)
                           ) && (
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ml-5 mt-1 text-xs text-stone-400">
+                              {cat.type === 'weapon' && item.amount && <span>×{item.amount}</span>}
                               {cat.type === 'weapon' && item.attack_modifier && (
                                 <span><span className="text-stone-500">Att:</span> {fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, weaponStats(item)))}</span>
                               )}
@@ -828,16 +973,21 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                 return <span><span className="text-stone-500">Dmg:</span> {evalFormula(effectiveDmg, charStats)}</span>
                               })()}
                               {cat.type === 'armor' && item.ac_formula && (
-                                <span><span className="text-stone-500">AC:</span> {evalFormula(item.ac_formula, charStats)}</span>
+                                <span><span className="text-stone-500">AC:</span> {(item.armor_category === 'shield' ? '+' : '') + evalFormula(item.ac_formula, charStats)}</span>
                               )}
                               {item.price && <span className="text-stone-500">{item.price}</span>}
                               {item.weight && isExpanded && <span className="text-stone-400">{item.weight}</span>}
-                              {item.amount && <span>×{item.amount}</span>}
+                              {cat.type !== 'weapon' && item.amount && <span>×{item.amount}</span>}
                               {cat.type !== 'usable' && item.has_charges && (
                                 <>
-                                  <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
-                                  {(item.charges_recharge === 'short' || item.charges_recharge === 'long') && (
-                                    <span className="text-stone-500">({item.charges_recharge === 'short' ? 'Short Rest' : 'Long Rest'})</span>
+                                  {item.charges_recharge === 'none'
+                                    ? <span>{item.charges_current ?? 0} charges</span>
+                                    : <span>{item.charges_current ?? 0}/{item.charges_max ?? 0} charges</span>
+                                  }
+                                  {item.charges_recharge === 'short' && <span className="text-stone-500">(Short Rest)</span>}
+                                  {item.charges_recharge === 'long'  && <span className="text-stone-500">(Long Rest)</span>}
+                                  {item.charges_recharge === 'daily' && item.charges_daily_trigger && (
+                                    <span className="text-stone-500">({item.charges_daily_schema} at {item.charges_daily_trigger})</span>
                                   )}
                                 </>
                               )}
@@ -910,14 +1060,17 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   </span>
                                 )}
                                 {item.ac_formula && (
-                                  <span className="text-stone-400 text-sm">AC: <span className="text-stone-200">{evalFormula(item.ac_formula, charStats)}</span></span>
+                                  <span className="text-stone-400 text-sm">AC: <span className="text-stone-200">{(item.armor_category === 'shield' ? '+' : '') + evalFormula(item.ac_formula, charStats)}</span></span>
                                 )}
                               </div>
                             )}
 
                             {/* Description */}
                             {item.description
-                              ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                              ? item.description.split(/\n\n+/).map((para, i) => (
+                                  <p key={i} dir="auto" className={`text-stone-300 text-sm whitespace-pre-wrap${i > 0 ? ' mt-2' : ''}`}
+                                     style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
+                                ))
                               : <p className="text-stone-500 text-sm italic">No description.</p>
                             }
                           </div>
@@ -938,6 +1091,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
         Use <strong>{useModal?.name}</strong>?
       </Modal>
 
+      <Modal open={!!deleteModal} title="Delete item?" danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteModal(null)}
+        confirmLabel="Delete">
+        Delete <strong>{deleteModal?.name}</strong>?
+      </Modal>
+
       <Modal open={!!zeroModal} title="Item depleted" danger
         onConfirm={() => { doRemove(zeroModal.index); setZeroModal(null) }}
         onCancel={() => setZeroModal(null)}
@@ -952,6 +1112,23 @@ export default function EquipmentSection({ control, register, watch, setValue, r
       <Modal open={!!attuneModal} title="Already attuned to 3 items" onCancel={() => setAttuneModal(null)}>
         <ul className="list-disc list-inside space-y-1 mt-1">
           {attuneModal?.names.map((n, i) => <li key={i} className="text-stone-200">{n}</li>)}
+        </ul>
+      </Modal>
+
+      <Modal
+        open={!!nonProfModal}
+        title="Not proficient with this armor"
+        onConfirm={() => { doEquip(nonProfModal.pendingIndex, true); setNonProfModal(null) }}
+        onCancel={() => setNonProfModal(null)}
+        confirmLabel="Equip Anyway"
+        danger>
+        <p className="text-stone-300 mt-1">
+          You are not proficient with <strong className="text-stone-100">{nonProfModal?.name}</strong>.<br /><br />
+          While wearing it:
+        </p>
+        <ul className="list-disc list-inside space-y-1 mt-2 text-stone-300">
+          <li>STR &amp; DEX ability checks and saving throws are rolled with <strong className="text-red-300">disadvantage</strong></li>
+          <li>You <strong className="text-red-300">cannot cast spells</strong></li>
         </ul>
       </Modal>
 

@@ -3,6 +3,16 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+
+// Splits on blank lines and gives each paragraph its own dir="auto" so RTL/LTR
+// is detected independently per paragraph rather than for the whole text block.
+function DescBlock({ text, className }) {
+  if (!text) return null
+  return text.split(/\n\n+/).map((para, i) => (
+    <p key={i} dir="auto" className={`${className}${i > 0 ? ' mt-2' : ''}`}
+       style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
+  ))
+}
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
@@ -620,7 +630,7 @@ function setCookie(name, value) {
 
 const ATTACKS_SPELL_FILTERS_GENERAL = SPELL_FILTERS_GENERAL.filter(f => f.key !== 'prepared')
 
-function AttacksSpellcastingBlock({ classIndex, className, castingAbility, control, watch, setValue, watchedProfBonus, watchedAbilities, concentratingInfo, onConcentrate }) {
+function AttacksSpellcastingBlock({ classIndex, className, castingAbility, spellPreparation, control, watch, setValue, watchedProfBonus, watchedAbilities, concentratingInfo, onConcentrate }) {
   const allSpells = useWatch({ control, name: `classes.${classIndex}.spells` }) || []
 
   const cookieKey = `grimoire_atk_exp_${(className || 'unknown').replace(/\W+/g, '_')}`
@@ -731,7 +741,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
               const c = SPELL_LEVEL_COLORS[lvl]
               const levelSpells = allSpells
                 .map((sp, i) => ({ sp, i }))
-                .filter(({ sp }) => (sp?.level ?? 0) === lvl && (lvl === 0 || !!sp?.prepared))
+                .filter(({ sp }) => (sp?.level ?? 0) === lvl && (lvl === 0 || spellPreparation === 'known' || !!sp?.prepared))
               const slotsAvailable = hasSlotAtOrAbove(lvl)
               const visibleSpells  = slotsAvailable ? levelSpells.filter(({ sp }) => spellVisible(sp, lvl)) : []
               const isFiltering   = showFilters.length > 0 || hideFilters.length > 0
@@ -831,7 +841,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, contr
                                 {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
                                 {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
                                 {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
-                                {sp.description && <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>}
+                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />}
                               </div>
                             )}
                           </div>
@@ -857,6 +867,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
   const { ref: rhfRef, ...rest } = registerResult
   return (
     <textarea
+      dir="auto"
       {...rest}
       {...props}
       className={className}
@@ -867,7 +878,7 @@ function AutoResizeTextarea({ registerResult, className, style, ...props }) {
   )
 }
 
-function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
+function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPreparation, control, register, watch, setValue, readOnly, watchedProfBonus, watchedAbilities }) {
   const { fields: spellFields, append: addSpell, remove: removeSpell, move: moveSpell } = useFieldArray({
     control, name: `classes.${classIndex}.spells`,
   })
@@ -908,7 +919,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
   }
   function addSpellAtLevel(lvl) {
     pendingNewSpell.current = true
-    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
+    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '', higher_level: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
   }
   const spellTouchMoveRef = useRef(null)
@@ -1000,7 +1011,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
       {/* Filters */}
       <div className="flex flex-col gap-1 mb-3">
         <div className="flex flex-wrap gap-1">
-          {SPELL_FILTERS_GENERAL.map(f => (
+          {SPELL_FILTERS_GENERAL.filter(f => spellPreparation !== 'known' || f.key !== 'prepared').map(f => (
             <button key={f.key} type="button" onClick={() => cycleFilter(f.key)}
               className={`text-xs px-2 py-0.5 rounded border transition-colors ${FILTER_STATE_CLASSES[filterStates[f.key] || 0]}`}>
               {f.label}
@@ -1101,34 +1112,44 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                       ? compParts.join(', ') + (sp.comp_m && sp.comp_m_text ? ` (${sp.comp_m_text})` : '')
                       : null
 
-                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description
+                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description || sp.higher_level
 
                     return (
                       <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
                         {isEditingSpell && !readOnly ? (
                           <div className="px-3 py-2 space-y-2" onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) stopEditSpell(field.id) }}>
-                            {/* Row 1: name, cast time, range + action buttons */}
+                            {/* Row 1: name (+ mobile trash), cast time, range + desktop action buttons */}
                             <div className="flex gap-2 flex-wrap items-center">
-                              <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1 min-w-32" placeholder="Spell name" autoFocus={!sp.name} />
-                              <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input w-28" placeholder="Cast time" />
-                              <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input w-24" placeholder="Range" />
+                              <div className="flex items-center gap-2 min-w-full sm:flex-1 sm:min-w-32">
+                                <input {...register(`classes.${classIndex}.spells.${i}.name`)} className="input flex-1" placeholder="Spell name" autoFocus={!sp.name} />
+                                <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
+                                  className="sm:hidden text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <div className="flex gap-2 min-w-full sm:contents">
+                                <input {...register(`classes.${classIndex}.spells.${i}.cast_time`)} className="input flex-1 sm:flex-none sm:w-36" placeholder="Cast time" />
+                                <input {...register(`classes.${classIndex}.spells.${i}.range`)} className="input flex-1 sm:flex-none sm:w-24" placeholder="Range" />
+                              </div>
                               <button type="button" onClick={() => stopEditSpell(field.id)}
-                                className="text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                className="hidden sm:flex text-green-400 hover:text-green-300 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <CheckIcon className="w-4 h-4" />
                               </button>
                               <button type="button" onClick={() => removeSpellByIndex(field.id, i)}
-                                className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
+                                className="hidden sm:flex text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0">
                                 <TrashIcon className="w-4 h-4" />
                               </button>
                             </div>
                             {/* Row 2: school, duration, prepared, ritual */}
                             <div className="flex gap-2 flex-wrap items-center">
-                              <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input w-40">
-                                <option value="">— School —</option>
-                                {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                              <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input w-32" placeholder="Duration" />
-                              {lvl > 0 && (
+                              <div className="flex gap-2 min-w-full sm:contents">
+                                <select {...register(`classes.${classIndex}.spells.${i}.school`)} className="input flex-1 sm:flex-none sm:w-40">
+                                  <option value="">— School —</option>
+                                  {SPELL_SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                                <input {...register(`classes.${classIndex}.spells.${i}.duration`)} className="input flex-1 sm:flex-none sm:w-36" placeholder="Duration" />
+                              </div>
+                              {lvl > 0 && spellPreparation !== 'known' && (
                                 <label className="flex items-center gap-1 text-xs text-stone-400 shrink-0 cursor-pointer">
                                   <input type="checkbox" {...register(`classes.${classIndex}.spells.${i}.prepared`)} className="accent-red-700" />
                                   Prepared
@@ -1163,6 +1184,20 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                               placeholder="Description (optional)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            {/* Row 5: higher level */}
+                            <div>
+                              <label className="label text-xs mb-1">Using a Higher-Level Spell Slot</label>
+                              <AutoResizeTextarea
+                                registerResult={register(`classes.${classIndex}.spells.${i}.higher_level`)}
+                                className="input w-full text-sm"
+                                placeholder="Effect when cast at a higher level (optional)"
+                                style={{ whiteSpace: 'pre-wrap', minHeight: '2.5rem' }}
+                              />
+                            </div>
+                            <button type="button" onClick={() => stopEditSpell(field.id)}
+                              className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
+                              Save
+                            </button>
                           </div>
                         ) : (
                           <div
@@ -1200,7 +1235,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                       {sp.name || <span className="text-stone-500 italic">Unnamed spell</span>}
                                     </span>
                                     {sp.ritual && <span className="text-stone-500 text-xs italic shrink-0">(ritual)</span>}
-                                    {lvl > 0 && (
+                                    {lvl > 0 && spellPreparation !== 'known' && (
                                       <button type="button"
                                         onClick={e => { e.stopPropagation(); setValue(`classes.${classIndex}.spells.${i}.prepared`, !sp.prepared, { shouldDirty: true }) }}
                                         className={`text-xs px-1.5 py-0.5 rounded border shrink-0 transition-colors ${sp.prepared ? 'bg-red-900/60 text-red-300 border-red-800 hover:bg-red-900' : 'bg-transparent text-stone-600 border-stone-700 hover:text-stone-400 hover:border-stone-600'}`}>
@@ -1243,7 +1278,12 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, control, 
                                   <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
                                 )}
                                 {sp.description && (
-                                  <p className="text-stone-300 text-sm whitespace-pre-wrap">{sp.description}</p>
+                                  <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                )}
+                                {sp.higher_level && (
+                                  <div className="text-sm text-stone-300 whitespace-pre-wrap">
+                                    <span className="font-semibold text-stone-200">Using a Higher-Level Spell Slot:</span>{'\n'}{sp.higher_level}
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -1523,6 +1563,7 @@ export default function CharacterSheet() {
   const [saveErrorModal, setSaveErrorModal] = useState(null)
   const [showJsonModal,  setShowJsonModal]  = useState(false)
   const [jsonCopied,     setJsonCopied]     = useState(false)
+  const [pdfGenerating,  setPdfGenerating]  = useState(false)
   const [campaignChars, setCampaignChars] = useState([])
   const [equipmentHasEditing, setEquipmentHasEditing] = useState(false)
   const [tempHpDisplayStr, setTempHpDisplayStr] = useState('')
@@ -1540,10 +1581,12 @@ export default function CharacterSheet() {
   const [showPortraitView, setShowPortraitView] = useState(false)
   const [showShortRestModal, setShowShortRestModal] = useState(false)
   const [showLongRestDeadModal, setShowLongRestDeadModal] = useState(false)
+  const [dailyTriggerQueue, setDailyTriggerQueue] = useState([])
+  const [dailyTriggerModal, setDailyTriggerModal] = useState(null)
   const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
-  const TABS = ['main', 'inventory', 'combat', 'roleplay']
-  const TAB_LABELS = { main: 'Main', inventory: '🎒 Inventory', combat: '⚔️ Combat', roleplay: '📖 Roleplay' }
+  const TABS = ['main', 'inventory', 'combat', 'spells', 'roleplay']
+  const TAB_LABELS = { main: ['👤', 'General'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
   const [activeTab, setActiveTabState] = useState(() => {
     try { const t = localStorage.getItem('grimoire_active_tab'); return TABS.includes(t) ? t : 'main' } catch { return 'main' }
   })
@@ -1590,6 +1633,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [outOfChargesModal, setOutOfChargesModal] = useState(null) // { name }
 
   const [editingClasses,  setEditingClasses]  = useState(new Set())
+  const [classErrors,     setClassErrors]     = useState({})
   const prevClassesLengthRef = useRef(0)
   const classPreEditRef = useRef({})
   const pendingNewClass      = useRef(false)
@@ -1719,6 +1763,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   function stopEditClass(fieldId) {
     const i = classFields.findIndex(f => f.id === fieldId)
     const cls = allClasses[i]
+    const missing = []
+    if (!cls?.name)    missing.push('name')
+    if (!cls?.hit_die) missing.push('hit die')
+    if (cls?.is_spellcaster && !cls?.casting_ability)   missing.push('casting ability')
+    if (cls?.is_spellcaster && !cls?.spell_preparation) missing.push('spell preparation type')
+    if (missing.length > 0) {
+      setClassErrors(prev => ({ ...prev, [fieldId]: `Missing: ${missing.join(', ')}.` })); return
+    }
+    setClassErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n })
     const pre = classPreEditRef.current[fieldId] || { level: 0, hit_die: '' }
     delete classPreEditRef.current[fieldId]
     const delta = hitDiceDelta(computeHitDice([pre]), computeHitDice([{ level: cls?.level || 0, hit_die: cls?.hit_die || '' }]))
@@ -1811,6 +1864,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
     proficiency_bonus: watchedProfBonus
   }
+
+  const hasNonProfArmor = (watch('equipment') || []).some(
+    item => item.type === 'armor' && item.equipped && checkArmorProficiency(item, watchedArmorProfs) === false
+  )
 
   const autoAC = (() => {
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
@@ -1934,6 +1991,82 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })).filter(d => d.count > 0)
       setValue('hit_dice_remaining', newRem.length ? stringifyHitDice(newRem) : '0', { shouldDirty: true })
     }
+  }
+
+  const DAILY_TRIGGER_ORDER = ['dawn', 'morning', 'noon', 'midday', 'afternoon', 'evening', 'dusk', 'sunset', 'midnight', 'night']
+  const DAILY_TRIGGER_EMOJI = { dawn: '🌅', morning: '🌤️', noon: '☀️', midday: '☀️', afternoon: '🌤️', evening: '🌆', dusk: '🌇', sunset: '🌇', midnight: '🌙', night: '🌙' }
+  function triggerSortKey(t) {
+    const idx = DAILY_TRIGGER_ORDER.indexOf((t || '').toLowerCase())
+    return idx === -1 ? 999 : idx
+  }
+  function triggerEmoji(t) {
+    return DAILY_TRIGGER_EMOJI[(t || '').toLowerCase()] || '✨'
+  }
+
+  function doDailyTrigger(trigger) {
+    const equipment = watch('equipment') || []
+    const items = equipment
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.has_charges && item.charges_recharge === 'daily' &&
+        (item.charges_daily_trigger || '').toLowerCase() === trigger.toLowerCase())
+      .map(({ item, index }) => ({
+        index,
+        name: item.name || 'Unknown item',
+        schema: item.charges_daily_schema || 'All',
+        current: parseInt(item.charges_current) || 0,
+        max: parseInt(item.charges_max) || 0,
+      }))
+    if (items.length === 0) return
+    const [first, ...rest] = items
+    setDailyTriggerQueue(rest)
+    setDailyTriggerModal({ ...first, editCurrent: first.current, rollResult: null, rolled: false })
+  }
+
+  function advanceDailyTrigger(newCurrent, index) {
+    setValue(`equipment.${index}.charges_current`, newCurrent, { shouldDirty: true })
+    if (dailyTriggerQueue.length === 0) {
+      setDailyTriggerModal(null)
+    } else {
+      const [next, ...rest] = dailyTriggerQueue
+      setDailyTriggerQueue(rest)
+      setDailyTriggerModal({ ...next, editCurrent: next.current, rollResult: null, rolled: false })
+    }
+  }
+
+  function skipDailyTrigger() {
+    if (dailyTriggerQueue.length === 0) {
+      setDailyTriggerModal(null)
+    } else {
+      const [next, ...rest] = dailyTriggerQueue
+      setDailyTriggerQueue(rest)
+      setDailyTriggerModal({ ...next, editCurrent: next.current, rollResult: null, rolled: false })
+    }
+  }
+
+  function rollDailySchema(schema) {
+    const s = schema.replace(/\s+/g, '')
+    const diceResults = []
+    let constant = 0
+    const re = /([+\-]?)(\d+[dD]\d+|\d+)/g
+    let m
+    while ((m = re.exec(s)) !== null) {
+      const sign = m[1] === '-' ? -1 : 1
+      const term = m[2]
+      if (/[dD]/.test(term)) {
+        const [n, d] = term.toLowerCase().split('d')
+        const rolls = []
+        for (let k = 0; k < parseInt(n); k++) rolls.push(Math.floor(Math.random() * parseInt(d)) + 1)
+        const sum = rolls.reduce((a, b) => a + b, 0)
+        diceResults.push({ label: term, sum: sign * sum, rolls })
+      } else {
+        constant += sign * parseInt(term)
+      }
+    }
+    const total = Math.max(0, diceResults.reduce((acc, d) => acc + d.sum, 0) + constant)
+    const parts = diceResults.map(d => `${d.label} [${d.rolls.join(', ')}]=${d.sum}`)
+    if (constant !== 0) parts.push(String(constant))
+    const detail = parts.join(' + ') + ` = ${total}`
+    return { total, detail }
   }
 
   // Normalize trailing/leading zeros in any number input across the sheet
@@ -2090,6 +2223,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }
   }
 
+  async function handleDownloadPDF() {
+    setPdfGenerating(true)
+    try {
+      const [{ pdf }, { default: CharacterPDF }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('../components/CharacterPDF'),
+      ])
+      const blob = await pdf(<CharacterPDF data={watch()} />).toBlob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${watch('name') || 'character'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setPdfGenerating(false)
+    }
+  }
+
   async function onSubmit(data) {
     setError('')
     // Keep legacy class/subclass/level in sync with the classes array for list display
@@ -2118,7 +2270,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const watchName = watch('name')
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <form onSubmit={handleSubmit(onSubmit)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="flex flex-col min-h-[calc(100dvh-6.5rem)]">
       <style>{`
         @keyframes xp-shimmer {
           0%, 100% { box-shadow: 0 0 6px 2px rgba(234,179,8,0.5), 0 0 14px 4px rgba(202,138,4,0.25); }
@@ -2132,24 +2284,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
 
       `}</style>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-stone-100">
-          {watchName || (isNew ? 'New Character' : 'Character Sheet')}
-        </h1>
-        <div className="flex items-center gap-2">
-          {error && <span className="text-red-400 text-sm">{error}</span>}
-          {!readOnly && (
-            <button type="submit" disabled={isSubmitting}
-              className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
-              {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create' : 'Save'}
-            </button>
-          )}
-          <button type="button" onClick={() => navigate(campaignId ? `/campaigns/${campaignId}` : '/characters')} className="btn btn-secondary">
-            Back
-          </button>
-        </div>
-      </div>
 
       {/* Campaign character strip */}
       {campaignId && campaignChars.length > 0 && (
@@ -2186,22 +2320,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="flex border-b border-stone-700 mb-4">
-        {TABS.map(t => (
-          <button key={t} type="button" onClick={() => setTab(t)}
-            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
-            }`}>
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
-
-      {/* Animated tab content wrapper */}
-      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
-
-      {/* Portrait — above Basic Information */}
       {showPortraitModal && (
         <PortraitCropModal
           onClose={() => setShowPortraitModal(false)}
@@ -2218,18 +2336,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </button>
         </div>
       )}
-      <div className={`mb-4${activeTab !== 'main' && activeTab !== 'roleplay' ? ' hidden' : ''} ${activeTab === 'roleplay' ? 'flex flex-col sm:flex-row sm:items-center gap-3' : 'flex items-center gap-3'}`}>
-        {/* Name/class — on mobile roleplay comes first (order-1), on desktop stays second */}
-        <div className={activeTab === 'roleplay' ? 'order-1 sm:order-2' : ''}>
+      {/* Character header — always visible above tabs */}
+      <div className="flex items-center gap-3 mb-3">
+        <div>
           <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
           <div className="text-sm text-stone-400 mt-0.5">
             {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
           </div>
         </div>
-        {/* Portrait */}
-        <div className={`relative group shrink-0 ${activeTab === 'roleplay' ? 'order-2 sm:order-1' : ''}`}>
+        <div className="relative group shrink-0">
           <div
-            className={`rounded-xl overflow-hidden bg-stone-800 border border-stone-700 ${activeTab === 'roleplay' ? 'w-full aspect-square sm:w-24 sm:h-24 sm:aspect-auto' : 'w-20 h-20 sm:w-24 sm:h-24'}`}
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-stone-800 border border-stone-700"
             style={{ cursor: watchedPortrait ? 'zoom-in' : readOnly ? 'default' : 'pointer' }}
             onClick={() => { if (watchedPortrait) setShowPortraitView(true); else if (!readOnly) setShowPortraitModal(true) }}>
             {watchedPortrait ? (
@@ -2249,19 +2366,75 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </button>
           )}
         </div>
-        {activeTab === 'main' && !readOnly && (
-          <div className="flex flex-col gap-1.5">
-            <button type="button" onClick={doShortRest}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
-              <ClockIcon className="w-4 h-4 shrink-0" /> Short Rest
-            </button>
-            <button type="button" onClick={doLongRest}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
-              <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
-            </button>
+        {!readOnly && (
+          <div className="flex flex-row gap-1.5 items-start">
+            <div className="flex flex-col gap-1.5">
+              <button type="button" onClick={doShortRest}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
+                <ClockIcon className="w-4 h-4 shrink-0" /> Short Rest
+              </button>
+              <button type="button" onClick={doLongRest}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap">
+                <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
+              </button>
+            </div>
+            {(() => {
+              const triggers = [...new Set(
+                (watch('equipment') || [])
+                  .filter(item => item.has_charges && item.charges_recharge === 'daily' && item.charges_daily_trigger)
+                  .map(item => item.charges_daily_trigger)
+              )].sort((a, b) => triggerSortKey(a) - triggerSortKey(b))
+              const cols = []
+              for (let i = 0; i < triggers.length; i += 2) cols.push(triggers.slice(i, i + 2))
+              return cols.map((col, ci) => (
+                <div key={ci} className="hidden sm:flex flex-col gap-1.5">
+                  {col.map(trigger => (
+                    <button key={trigger} type="button" onClick={() => doDailyTrigger(trigger)}
+                      className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap text-amber-300 border-amber-800 hover:bg-amber-900/40">
+                      {triggerEmoji(trigger)} {trigger}
+                    </button>
+                  ))}
+                </div>
+              ))
+            })()}
           </div>
         )}
       </div>
+      {/* Mobile trigger buttons */}
+      {!readOnly && (() => {
+        const triggers = [...new Set(
+          (watch('equipment') || [])
+            .filter(item => item.has_charges && item.charges_recharge === 'daily' && item.charges_daily_trigger)
+            .map(item => item.charges_daily_trigger)
+        )].sort((a, b) => triggerSortKey(a) - triggerSortKey(b))
+        if (!triggers.length) return null
+        return (
+          <div className="flex sm:hidden flex-wrap gap-1.5 mb-3">
+            {triggers.map(trigger => (
+              <button key={trigger} type="button" onClick={() => doDailyTrigger(trigger)}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5 whitespace-nowrap text-amber-300 border-amber-800 hover:bg-amber-900/40">
+                {triggerEmoji(trigger)} {trigger}
+              </button>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Tab bar */}
+      <div className="flex border-b border-stone-700 mb-4">
+        {TABS.map(t => (
+          <button key={t} type="button" onClick={() => setTab(t)}
+            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
+              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
+            }`}>
+            <span className="text-base">{TAB_LABELS[t][0]}</span>
+            <span className="text-xs">{TAB_LABELS[t][1]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Animated tab content wrapper */}
+      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
 
       {/* Basic Info */}
       <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''} hidden={activeTab !== 'main'}>
@@ -2295,7 +2468,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_preparation: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -2311,10 +2484,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   {isEditing && !readOnly ? (
                     <div className="p-2 space-y-2">
                       <div className="flex gap-2 flex-wrap items-center">
-                        <input {...register(`classes.${i}.name`)} className="input flex-1 min-w-28" placeholder="Class name" autoFocus={!cls.name} />
+                        <input {...register(`classes.${i}.name`)} className={`input flex-1 min-w-28 ${classErrors[field.id] && !cls.name ? 'border-red-600' : ''}`} placeholder="Class name" autoFocus={!cls.name} />
                         <input {...register(`classes.${i}.subclass`)} className="input flex-1 min-w-28" placeholder="Subclass (optional)" />
                         <input type="number" min={1} max={20} {...register(`classes.${i}.level`, { valueAsNumber: true })} className="input w-16" placeholder="Lvl" />
-                        <select {...register(`classes.${i}.hit_die`)} className="input w-20">
+                        <select {...register(`classes.${i}.hit_die`)} className={`input w-20 ${classErrors[field.id] && !cls.hit_die ? 'border-red-600' : ''}`}>
                           <option value="">HD</option>
                           {HD_DIE_SIZES.map(n => <option key={n} value={`d${n}`}>d{n}</option>)}
                         </select>
@@ -2334,7 +2507,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         </label>
                         {cls.is_spellcaster && (
                           <>
-                            <select {...register(`classes.${i}.casting_ability`)} className="input w-40">
+                            <select {...register(`classes.${i}.casting_ability`)} className={`input w-40 ${classErrors[field.id] && !cls.casting_ability ? 'border-red-600' : ''}`}>
                               <option value="">— casting ability —</option>
                               {ABILITIES.map(a => <option key={a} value={a}>{ABILITY_SHORT[a]} — {a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
                             </select>
@@ -2342,9 +2515,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                               <option value="long">Long rest slots</option>
                               <option value="short">Short rest slots</option>
                             </select>
+                            <select {...register(`classes.${i}.spell_preparation`, { required: cls.is_spellcaster })} className={`input w-40 ${cls.is_spellcaster && !cls.spell_preparation ? 'border-red-600' : ''}`}>
+                              <option value="">— spell type —</option>
+                              <option value="prepared">Prepares Spells</option>
+                              <option value="known">Spells Known</option>
+                            </select>
                           </>
                         )}
                       </div>
+                      {classErrors[field.id] && (
+                        <p className="text-red-400 text-xs px-3 pb-1">{classErrors[field.id]}</p>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
@@ -2491,8 +2672,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     className="flex items-center gap-2 cursor-pointer py-1 rounded px-1 hover:bg-stone-800/60 transition-colors"
                     onClick={() => !readOnly && toggleArrayValue('saving_throw_profs', ability)}>
                     <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 transition-colors ${isProficient ? `${c.dot} border-transparent` : 'bg-transparent border-stone-600'}`} />
-                    <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{ABILITY_SHORT[ability]}</span>
-                    <span className={`text-sm w-8 text-right tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
+                    <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>
+                      {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
+                    </span>
+                    <span className={`text-sm tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
                   </div>
                 )
               })}
@@ -2546,9 +2729,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     className={`w-3 h-3 rotate-45 border-2 shrink-0 transition-colors ${isExpert ? `${c.dot} border-transparent` : 'bg-transparent border-stone-700'}`}
                     title={isExpert ? 'Remove expertise' : 'Add expertise'}
                   />
-                  <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{skill.name}</span>
+                  <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>
+                    {skill.name}{hasNonProfArmor && (skill.ability === 'strength' || skill.ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
+                  </span>
                   <span className={`text-xs font-medium ${c.label}`}>{ABILITY_SHORT[skill.ability]}</span>
-                  <span className={`text-sm w-8 text-right tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
+                  <span className={`text-sm tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
                 </div>
               )
             })}
@@ -2782,7 +2967,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 const c = ABILITY_COLORS[ability]
                 return (
                   <div key={ability} className={`rounded-lg p-2 text-center border ${isProficient ? `bg-stone-900 ${c.border}` : 'bg-stone-900/50 border-stone-700'}`}>
-                    <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>{ABILITY_SHORT[ability]}</div>
+                    <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>
+                      {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
+                    </div>
                     <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</div>
                     {isProficient && <div className={`w-2 h-2 rounded-full mx-auto mt-0.5 ${c.dot}`} />}
                   </div>
@@ -2885,7 +3072,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Attacks */}
-      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'combat'}>
         {(() => {
           const allEquipment = watch('equipment') || []
           const weapons = allEquipment.map((item, i) => ({ item, i })).filter(({ item }) => item.type === 'weapon')
@@ -3043,7 +3230,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                                   </div>
                                 )}
                                 {item.description
-                                  ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
                                   : <p className="text-stone-500 text-sm italic">No description.</p>
                                 }
                               </div>
@@ -3060,24 +3247,28 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         })()}
 
         {/* Per-class spellcasting */}
-        {allClasses.map((cls, classIndex) => {
-          if (!cls?.is_spellcaster || !cls?.casting_ability) return null
-          return (
-            <AttacksSpellcastingBlock
-              key={classIndex}
-              classIndex={classIndex}
-              className={cls.name}
-              castingAbility={cls.casting_ability}
-              control={control}
-              watch={watch}
-              setValue={setValue}
-              watchedProfBonus={watchedProfBonus}
-              watchedAbilities={watchedAbilities}
-              concentratingInfo={concentratingInfo}
-              onConcentrate={handleConcentrate}
-            />
-          )
-        })}
+        {hasNonProfArmor && activeTab === 'combat'
+          ? <p className="text-red-400 text-sm font-semibold mt-2">⚠ Non-proficient armor equipped — spellcasting unavailable</p>
+          : allClasses.map((cls, classIndex) => {
+              if (!cls?.is_spellcaster || !cls?.casting_ability) return null
+              return (
+                <AttacksSpellcastingBlock
+                  key={classIndex}
+                  classIndex={classIndex}
+                  className={cls.name}
+                  castingAbility={cls.casting_ability}
+                  spellPreparation={cls.spell_preparation || 'prepared'}
+                  control={control}
+                  watch={watch}
+                  setValue={setValue}
+                  watchedProfBonus={watchedProfBonus}
+                  watchedAbilities={watchedAbilities}
+                  concentratingInfo={concentratingInfo}
+                  onConcentrate={handleConcentrate}
+                />
+              )
+            })
+        }
       </Section>
 
       {/* Features, Proficiencies & Languages */}
@@ -3086,7 +3277,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         sectionKey="Features, Proficiencies & Languages"
         defaultOpen={false}
         locked={activeTab !== 'main'}
-        hidden={activeTab === 'inventory'}>
+        hidden={activeTab === 'inventory' || activeTab === 'spells'}>
 
         <div className={activeTab === 'roleplay' ? 'hidden' : ''}>
         <SubSection title="Features" bare={activeTab === 'combat'}>
@@ -3159,7 +3350,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       )}
                     </div>
                     {/* Description */}
-                    <textarea {...register(`features_list.${i}.description`)} className="input w-full resize-none"
+                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none"
                       rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
                   </div>
                 ) : (
@@ -3234,7 +3425,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {isExpanded && (
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
-                          ? <p className="text-stone-300 text-sm whitespace-pre-wrap">{featDesc}</p>
+                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm whitespace-pre-wrap" />
                           : <p className="text-stone-500 text-sm italic">No description.</p>
                         }
                       </div>
@@ -3350,7 +3541,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Equipment & Currency */}
-      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'main' && activeTab !== 'inventory'}>
+      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'inventory'}>
         <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly}
           onEditingChange={setEquipmentHasEditing}
           weaponProfs={watchedWeaponProfs}
@@ -3365,14 +3556,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         return (
           <Section key={field.id}
             title={<span className="flex items-baseline gap-1.5 text-yellow-300">✨ SPELLCASTING<span className="text-stone-500 font-normal normal-case tracking-normal">({cls.name || 'Unknown'})</span></span>}
-            sectionKey={`Spellcasting-${field.id}`}
-            defaultOpen={false}
+            sectionKey={`Spellcasting-${cls.name || i}`}
+            defaultOpen={true}
             locked={activeTab === 'combat'}
-            hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+            hidden={activeTab !== 'spells'}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
               slotRecovery={cls.slot_recovery}
+              spellPreparation={cls.spell_preparation || 'prepared'}
               control={control}
               register={register}
               watch={watch}
@@ -3386,7 +3578,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })}
 
       {/* Traits & Features */}
-      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { label: 'Personality Traits', name: 'personality_traits' },
@@ -3396,26 +3588,26 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           ].map(f => (
             <div key={f.name}>
               <label className="label">{f.label}</label>
-              <textarea rows={3} {...register(f.name)} className="input resize-none" disabled={readOnly} />
+              <textarea dir="auto" rows={3} {...register(f.name)} className="input resize-none" disabled={readOnly} />
             </div>
           ))}
         </div>
         <div className="mt-3">
           <label className="label">Features & Traits</label>
-          <textarea rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={4} {...register('features_and_traits')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Other Proficiencies & Languages</label>
-          <textarea rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={3} {...register('other_proficiencies')} className="input resize-none" disabled={readOnly} />
         </div>
         <div className="mt-3">
           <label className="label">Additional Features & Traits</label>
-          <textarea rows={3} {...register('additional_features_and_traits')} className="input resize-none" disabled={readOnly} />
+          <textarea dir="auto" rows={3} {...register('additional_features_and_traits')} className="input resize-none" disabled={readOnly} />
         </div>
       </Section>
 
       {/* Backstory & Appearance */}
-      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-3">
           {[
             { label: 'Age', name: 'age' },
@@ -3434,26 +3626,26 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Appearance Notes</label>
-            <textarea rows={3} {...register('appearance_notes')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('appearance_notes')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Backstory</label>
-            <textarea rows={3} {...register('character_backstory')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('character_backstory')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Allies & Organizations</label>
-            <textarea rows={3} {...register('allies_and_organizations')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('allies_and_organizations')} className="input resize-none" disabled={readOnly} />
           </div>
           <div>
             <label className="label">Treasure</label>
-            <textarea rows={3} {...register('treasure')} className="input resize-none" disabled={readOnly} />
+            <textarea dir="auto" rows={3} {...register('treasure')} className="input resize-none" disabled={readOnly} />
           </div>
         </div>
       </Section>
 
       {/* Notes */}
-      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
-        <textarea rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
+      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
+        <textarea dir="auto" rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
 
       </div>{/* end animated tab content wrapper */}
@@ -3492,6 +3684,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         Level up in <strong>{levelUpModal?.className}</strong>?{' '}
         (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
       </Modal>
+
+      {/* PDF export handler (no modal needed — triggers download directly) */}
+      {/* Button below calls handleDownloadPDF */}
 
       {/* JSON export */}
       {showJsonModal && (() => {
@@ -3604,9 +3799,54 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </div>
       </Modal>
 
+      {/* Daily trigger recharge modal */}
+      {dailyTriggerModal && (() => {
+        const { index, name, schema, max, editCurrent, rollResult, rolled } = dailyTriggerModal
+        const isAll = (schema || '').toLowerCase() === 'all'
+        return (
+          <Modal open title={isAll ? `Fully recharge ${name}` : `Add ${schema} charges to ${name}`}
+            onCancel={skipDailyTrigger} cancelLabel="Skip"
+            onConfirm={() => advanceDailyTrigger(editCurrent, index)} confirmLabel="Confirm"
+            danger>
+            <div className="space-y-3 mt-1">
+              <div className="flex items-center gap-2 text-sm text-stone-300">
+                <span>Charges:</span>
+                <input type="number" min={0} max={max} value={editCurrent}
+                  onChange={e => setDailyTriggerModal(prev => ({ ...prev, editCurrent: Math.min(max, Math.max(0, parseInt(e.target.value) || 0)) }))}
+                  className="input w-16 text-center" />
+                <span className="text-stone-500">/ {max}</span>
+              </div>
+              {isAll ? (
+                <button type="button"
+                  onClick={() => setDailyTriggerModal(prev => ({ ...prev, editCurrent: max }))}
+                  className="btn btn-secondary btn-sm">Fill</button>
+              ) : (
+                <div className="space-y-1">
+                  <button type="button"
+                    disabled={rolled}
+                    onClick={() => {
+                      const { total, detail } = rollDailySchema(schema)
+                      setDailyTriggerModal(prev => ({ ...prev, editCurrent: Math.min(max, prev.editCurrent + total), rollResult: detail, rolled: true }))
+                    }}
+                    className={`btn btn-secondary btn-sm text-amber-300 border-amber-800 hover:bg-amber-900/40 ${rolled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    Roll for me
+                  </button>
+                  {rollResult && <p className="text-xs text-stone-400 mt-1">{rollResult}</p>}
+                </div>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
+
+      <div className="flex-1" />
       {/* Save button at bottom too */}
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         {error && <span className="text-red-400 text-sm self-center">{error}</span>}
+        <button type="button" onClick={handleDownloadPDF} disabled={pdfGenerating}
+          className="btn btn-secondary">
+          {pdfGenerating ? 'Generating…' : 'To PDF'}
+        </button>
         <button type="button" onClick={() => { setJsonCopied(false); setShowJsonModal(true) }}
           className="btn btn-secondary">
           To JSON

@@ -919,7 +919,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
   }
   function addSpellAtLevel(lvl) {
     pendingNewSpell.current = true
-    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
+    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '', higher_level: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
   }
   const spellTouchMoveRef = useRef(null)
@@ -1112,7 +1112,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                       ? compParts.join(', ') + (sp.comp_m && sp.comp_m_text ? ` (${sp.comp_m_text})` : '')
                       : null
 
-                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description
+                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description || sp.higher_level
 
                     return (
                       <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
@@ -1184,6 +1184,16 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                               placeholder="Description (optional)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            {/* Row 5: higher level */}
+                            <div>
+                              <label className="label text-xs mb-1">Using a Higher-Level Spell Slot</label>
+                              <AutoResizeTextarea
+                                registerResult={register(`classes.${classIndex}.spells.${i}.higher_level`)}
+                                className="input w-full text-sm"
+                                placeholder="Effect when cast at a higher level (optional)"
+                                style={{ whiteSpace: 'pre-wrap', minHeight: '2.5rem' }}
+                              />
+                            </div>
                             <button type="button" onClick={() => stopEditSpell(field.id)}
                               className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
                               Save
@@ -1269,6 +1279,11 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                                 )}
                                 {sp.description && (
                                   <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                )}
+                                {sp.higher_level && (
+                                  <div className="text-sm text-stone-300 whitespace-pre-wrap">
+                                    <span className="font-semibold text-stone-200">Using a Higher-Level Spell Slot:</span>{'\n'}{sp.higher_level}
+                                  </div>
                                 )}
                               </div>
                             )}

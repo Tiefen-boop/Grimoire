@@ -919,7 +919,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
   }
   function addSpellAtLevel(lvl) {
     pendingNewSpell.current = true
-    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '' })
+    addSpell({ level: lvl, name: '', cast_time: '', range: '', duration: '', school: '', ritual: false, concentration: false, comp_v: false, comp_s: false, comp_m: false, comp_m_text: '', prepared: false, description: '', higher_level: '' })
     setExpandedLevels(prev => new Set([...prev, lvl]))
   }
   const spellTouchMoveRef = useRef(null)
@@ -1112,7 +1112,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                       ? compParts.join(', ') + (sp.comp_m && sp.comp_m_text ? ` (${sp.comp_m_text})` : '')
                       : null
 
-                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description
+                    const hasExpandedContent = sp.school || compDisplay || sp.duration || sp.description || sp.higher_level
 
                     return (
                       <div key={field.id} className={`transition duration-200 ${draggingSpellId === field.id ? 'scale-[1.03] shadow-2xl relative z-10 bg-stone-700 rounded-lg' : ''}`}>
@@ -1184,6 +1184,16 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                               placeholder="Description (optional)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            {/* Row 5: higher level */}
+                            <div>
+                              <label className="label text-xs mb-1">Using a Higher-Level Spell Slot</label>
+                              <AutoResizeTextarea
+                                registerResult={register(`classes.${classIndex}.spells.${i}.higher_level`)}
+                                className="input w-full text-sm"
+                                placeholder="Effect when cast at a higher level (optional)"
+                                style={{ whiteSpace: 'pre-wrap', minHeight: '2.5rem' }}
+                              />
+                            </div>
                             <button type="button" onClick={() => stopEditSpell(field.id)}
                               className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
                               Save
@@ -1269,6 +1279,11 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                                 )}
                                 {sp.description && (
                                   <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                )}
+                                {sp.higher_level && (
+                                  <div className="text-sm text-stone-300 whitespace-pre-wrap">
+                                    <span className="font-semibold text-stone-200">Using a Higher-Level Spell Slot:</span>{'\n'}{sp.higher_level}
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -1571,7 +1586,7 @@ export default function CharacterSheet() {
   const [showSizeModal, setShowSizeModal] = useState(false)
   const watchedPortrait = watch('portrait') ?? ''
   const TABS = ['main', 'inventory', 'combat', 'spells', 'roleplay']
-  const TAB_LABELS = { main: ['👤', 'Main'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
+  const TAB_LABELS = { main: ['👤', 'General'], inventory: ['🎒', 'Inventory'], combat: ['⚔️', 'Combat'], spells: ['✨', 'Spells'], roleplay: ['📖', 'Roleplay'] }
   const [activeTab, setActiveTabState] = useState(() => {
     try { const t = localStorage.getItem('grimoire_active_tab'); return TABS.includes(t) ? t : 'main' } catch { return 'main' }
   })
@@ -2269,24 +2284,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
 
       `}</style>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-stone-100">
-          {watchName || (isNew ? 'New Character' : 'Character Sheet')}
-        </h1>
-        <div className="flex items-center gap-2">
-          {error && <span className="text-red-400 text-sm">{error}</span>}
-          {!readOnly && (
-            <button type="submit" disabled={isSubmitting}
-              className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
-              {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create' : 'Save'}
-            </button>
-          )}
-          <button type="button" onClick={() => navigate(campaignId ? `/campaigns/${campaignId}` : '/characters')} className="btn btn-secondary">
-            Back
-          </button>
-        </div>
-      </div>
 
       {/* Campaign character strip */}
       {campaignId && campaignChars.length > 0 && (
@@ -2323,23 +2320,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="flex border-b border-stone-700 mb-4">
-        {TABS.map(t => (
-          <button key={t} type="button" onClick={() => setTab(t)}
-            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
-              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
-            }`}>
-            <span className="text-base">{TAB_LABELS[t][0]}</span>
-            <span className="text-xs">{TAB_LABELS[t][1]}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Animated tab content wrapper */}
-      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
-
-      {/* Portrait — above Basic Information */}
       {showPortraitModal && (
         <PortraitCropModal
           onClose={() => setShowPortraitModal(false)}
@@ -2356,18 +2336,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </button>
         </div>
       )}
-      <div className={`mb-4${activeTab !== 'main' && activeTab !== 'roleplay' ? ' hidden' : ''} ${activeTab === 'roleplay' ? 'flex flex-col sm:flex-row sm:items-center gap-3' : 'flex items-center gap-3'}`}>
-        {/* Name/class — on mobile roleplay comes first (order-1), on desktop stays second */}
-        <div className={activeTab === 'roleplay' ? 'order-1 sm:order-2' : ''}>
+      {/* Character header — always visible above tabs */}
+      <div className="flex items-center gap-3 mb-3">
+        <div>
           <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
           <div className="text-sm text-stone-400 mt-0.5">
             {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
           </div>
         </div>
-        {/* Portrait */}
-        <div className={`relative group shrink-0 ${activeTab === 'roleplay' ? 'order-2 sm:order-1' : ''}`}>
+        <div className="relative group shrink-0">
           <div
-            className={`rounded-xl overflow-hidden bg-stone-800 border border-stone-700 ${activeTab === 'roleplay' ? 'w-full aspect-square sm:w-24 sm:h-24 sm:aspect-auto' : 'w-20 h-20 sm:w-24 sm:h-24'}`}
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-stone-800 border border-stone-700"
             style={{ cursor: watchedPortrait ? 'zoom-in' : readOnly ? 'default' : 'pointer' }}
             onClick={() => { if (watchedPortrait) setShowPortraitView(true); else if (!readOnly) setShowPortraitModal(true) }}>
             {watchedPortrait ? (
@@ -2387,7 +2366,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </button>
           )}
         </div>
-        {activeTab === 'main' && !readOnly && (
+        {!readOnly && (
           <div className="flex flex-row gap-1.5 items-start">
             <div className="flex flex-col gap-1.5">
               <button type="button" onClick={doShortRest}
@@ -2399,7 +2378,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
               </button>
             </div>
-            {/* Trigger columns — desktop only */}
             {(() => {
               const triggers = [...new Set(
                 (watch('equipment') || [])
@@ -2422,8 +2400,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
         )}
       </div>
-      {/* Trigger buttons — mobile only, below portrait row */}
-      {activeTab === 'main' && !readOnly && (() => {
+      {/* Mobile trigger buttons */}
+      {!readOnly && (() => {
         const triggers = [...new Set(
           (watch('equipment') || [])
             .filter(item => item.has_charges && item.charges_recharge === 'daily' && item.charges_daily_trigger)
@@ -2441,6 +2419,22 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
         )
       })()}
+
+      {/* Tab bar */}
+      <div className="flex border-b border-stone-700 mb-4">
+        {TABS.map(t => (
+          <button key={t} type="button" onClick={() => setTab(t)}
+            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
+              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
+            }`}>
+            <span className="text-base">{TAB_LABELS[t][0]}</span>
+            <span className="text-xs">{TAB_LABELS[t][1]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Animated tab content wrapper */}
+      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
 
       {/* Basic Info */}
       <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''} hidden={activeTab !== 'main'}>
@@ -3078,7 +3072,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Attacks */}
-      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+      <Section title={<span className="text-orange-300">🗡️ Attacks & Spellcasting</span>} sectionKey="Attacks & Spellcasting" defaultOpen={false} locked={activeTab === 'combat'} hidden={activeTab !== 'combat'}>
         {(() => {
           const allEquipment = watch('equipment') || []
           const weapons = allEquipment.map((item, i) => ({ item, i })).filter(({ item }) => item.type === 'weapon')
@@ -3547,7 +3541,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Equipment & Currency */}
-      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'main' && activeTab !== 'inventory'}>
+      <Section title={<span className="text-amber-300">🎒 Equipment & Currency</span>} sectionKey="Equipment & Currency" defaultOpen={false} locked={activeTab === 'inventory'} hidden={activeTab !== 'inventory'}>
         <EquipmentSection control={control} register={register} watch={watch} setValue={setValue} readOnly={readOnly}
           onEditingChange={setEquipmentHasEditing}
           weaponProfs={watchedWeaponProfs}
@@ -3565,7 +3559,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             sectionKey={`Spellcasting-${cls.name || i}`}
             defaultOpen={true}
             locked={activeTab === 'combat'}
-            hidden={activeTab !== 'main' && activeTab !== 'spells'}>
+            hidden={activeTab !== 'spells'}>
             <SpellcastingBlock
               classIndex={i}
               castingAbility={cls.casting_ability}
@@ -3584,7 +3578,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })}
 
       {/* Traits & Features */}
-      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-violet-300">💭 Personality & Traits</span>} sectionKey="Personality & Traits" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { label: 'Personality Traits', name: 'personality_traits' },
@@ -3613,7 +3607,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Backstory & Appearance */}
-      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-teal-300">📖 Backstory & Appearance</span>} sectionKey="Backstory & Appearance" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-3">
           {[
             { label: 'Age', name: 'age' },
@@ -3650,7 +3644,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Notes */}
-      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'main' && activeTab !== 'roleplay'}>
+      <Section title={<span className="text-stone-400">📝 Notes</span>} sectionKey="Notes" defaultOpen={false} locked={activeTab === 'roleplay'} hidden={activeTab !== 'roleplay'}>
         <textarea dir="auto" rows={6} {...register('notes')} className="input resize-none w-full" disabled={readOnly} />
       </Section>
 

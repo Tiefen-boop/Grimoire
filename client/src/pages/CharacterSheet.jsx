@@ -2269,24 +2269,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         .inspiration-active { animation: magic-shimmer 1.8s ease-in-out infinite; }
 
       `}</style>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-stone-100">
-          {watchName || (isNew ? 'New Character' : 'Character Sheet')}
-        </h1>
-        <div className="flex items-center gap-2">
-          {error && <span className="text-red-400 text-sm">{error}</span>}
-          {!readOnly && (
-            <button type="submit" disabled={isSubmitting}
-              className={`btn ${saved ? 'bg-green-700 border-green-600 text-white hover:bg-green-600' : 'btn-primary'}`}>
-              {isSubmitting ? 'Saving…' : saved ? 'Saved!' : isNew ? 'Create' : 'Save'}
-            </button>
-          )}
-          <button type="button" onClick={() => navigate(campaignId ? `/campaigns/${campaignId}` : '/characters')} className="btn btn-secondary">
-            Back
-          </button>
-        </div>
-      </div>
 
       {/* Campaign character strip */}
       {campaignId && campaignChars.length > 0 && (
@@ -2323,23 +2305,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="flex border-b border-stone-700 mb-4">
-        {TABS.map(t => (
-          <button key={t} type="button" onClick={() => setTab(t)}
-            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
-              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
-            }`}>
-            <span className="text-base">{TAB_LABELS[t][0]}</span>
-            <span className="text-xs">{TAB_LABELS[t][1]}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Animated tab content wrapper */}
-      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
-
-      {/* Portrait — above Basic Information */}
       {showPortraitModal && (
         <PortraitCropModal
           onClose={() => setShowPortraitModal(false)}
@@ -2356,18 +2321,17 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </button>
         </div>
       )}
-      <div className={`mb-4${activeTab !== 'main' && activeTab !== 'roleplay' ? ' hidden' : ''} ${activeTab === 'roleplay' ? 'flex flex-col sm:flex-row sm:items-center gap-3' : 'flex items-center gap-3'}`}>
-        {/* Name/class — on mobile roleplay comes first (order-1), on desktop stays second */}
-        <div className={activeTab === 'roleplay' ? 'order-1 sm:order-2' : ''}>
+      {/* Character header — always visible above tabs */}
+      <div className="flex items-center gap-3 mb-3">
+        <div>
           <div className="text-xl font-bold text-stone-100">{watch('name') || (isNew ? 'New Character' : '—')}</div>
           <div className="text-sm text-stone-400 mt-0.5">
             {[watch('race'), watch('class')].filter(Boolean).join(' · ')}
           </div>
         </div>
-        {/* Portrait */}
-        <div className={`relative group shrink-0 ${activeTab === 'roleplay' ? 'order-2 sm:order-1' : ''}`}>
+        <div className="relative group shrink-0">
           <div
-            className={`rounded-xl overflow-hidden bg-stone-800 border border-stone-700 ${activeTab === 'roleplay' ? 'w-full aspect-square sm:w-24 sm:h-24 sm:aspect-auto' : 'w-20 h-20 sm:w-24 sm:h-24'}`}
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-stone-800 border border-stone-700"
             style={{ cursor: watchedPortrait ? 'zoom-in' : readOnly ? 'default' : 'pointer' }}
             onClick={() => { if (watchedPortrait) setShowPortraitView(true); else if (!readOnly) setShowPortraitModal(true) }}>
             {watchedPortrait ? (
@@ -2387,7 +2351,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </button>
           )}
         </div>
-        {activeTab === 'main' && !readOnly && (
+        {!readOnly && (
           <div className="flex flex-row gap-1.5 items-start">
             <div className="flex flex-col gap-1.5">
               <button type="button" onClick={doShortRest}
@@ -2399,7 +2363,6 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 <MoonIcon className="w-4 h-4 shrink-0" /> Long Rest
               </button>
             </div>
-            {/* Trigger columns — desktop only */}
             {(() => {
               const triggers = [...new Set(
                 (watch('equipment') || [])
@@ -2422,8 +2385,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
         )}
       </div>
-      {/* Trigger buttons — mobile only, below portrait row */}
-      {activeTab === 'main' && !readOnly && (() => {
+      {/* Mobile trigger buttons */}
+      {!readOnly && (() => {
         const triggers = [...new Set(
           (watch('equipment') || [])
             .filter(item => item.has_charges && item.charges_recharge === 'daily' && item.charges_daily_trigger)
@@ -2441,6 +2404,22 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           </div>
         )
       })()}
+
+      {/* Tab bar */}
+      <div className="flex border-b border-stone-700 mb-4">
+        {TABS.map(t => (
+          <button key={t} type="button" onClick={() => setTab(t)}
+            className={`flex-1 py-1 font-medium border-b-2 transition-colors flex flex-col items-center leading-tight ${
+              activeTab === t ? 'border-red-600 text-stone-100' : 'border-transparent text-stone-500 hover:text-stone-300'
+            }`}>
+            <span className="text-base">{TAB_LABELS[t][0]}</span>
+            <span className="text-xs">{TAB_LABELS[t][1]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Animated tab content wrapper */}
+      <div key={tabKey} className={`tab-wipe-${slideDir}`}>
 
       {/* Basic Info */}
       <Section title="Basic Information" extraClass={watchedInspiration ? 'inspiration-active' : xpFull ? 'xp-full-active' : ''} hidden={activeTab !== 'main'}>

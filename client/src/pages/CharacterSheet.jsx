@@ -2255,7 +2255,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         const res = await api.post('/characters', data)
         navigate(`/characters/${res.data.id}`, { replace: true })
       } else {
-        await api.put(`/characters/${id}`, data)
+        // Only send fields that changed since the last save/load
+        const saved = savedValuesRef.current ? JSON.parse(savedValuesRef.current) : {}
+        const changed = {}
+        for (const key of Object.keys(data)) {
+          if (JSON.stringify(data[key]) !== JSON.stringify(saved[key])) changed[key] = data[key]
+        }
+        if (Object.keys(changed).length > 0) await api.put(`/characters/${id}`, changed)
         savedValuesRef.current = JSON.stringify(data)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)

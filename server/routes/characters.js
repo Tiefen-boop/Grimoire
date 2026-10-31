@@ -152,8 +152,7 @@ router.put('/:id', (req, res) => {
 
   db.prepare(`UPDATE characters SET ${setClause} WHERE id = ?`).run(...values, req.params.id)
 
-  const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id)
-  res.json(parseJsonFields(updated))
+  res.json({ ok: true })
 })
 
 // Duplicate character (owner only)

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer'
 import { evalFormula } from '../utils/formulaEval'
+import { stripMarkdown } from '../utils/stripMarkdown'
 import { effectBonus, effectSources, applyEffects, armorState, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
 
 Font.register({
@@ -536,7 +537,7 @@ function FeaturesPage({ d }) {
               {f.has_charges ? (
                 <ChargesDisplay current={f.charges_current} max={f.charges_max} recharge={f.charges_recharge} />
               ) : null}
-              {f.description ? <DirText style={s.textBlock}>{f.description}</DirText> : null}
+              {f.description ? <DirText style={s.textBlock}>{stripMarkdown(f.description)}</DirText> : null}
             </View>
           ))}
           {d.features_and_traits ? (
@@ -781,7 +782,7 @@ function InventoryPage({ d }) {
                   )}
 
                   {/* Description */}
-                  {item.description ? <DirText style={s.textBlock}>{item.description}</DirText> : null}
+                  {item.description ? <DirText style={s.textBlock}>{stripMarkdown(item.description)}</DirText> : null}
                 </View>
               )
             })}
@@ -891,7 +892,7 @@ function SpellcastingPage({ d, cls }) {
                 </View>
                 {sp.description ? (
                   <View style={{ paddingLeft: 23, paddingRight: 4, paddingVertical: 2, backgroundColor: rowBg }}>
-                    <DirText style={[s.textBlock, { fontSize: 7 }]}>{sp.description}</DirText>
+                    <DirText style={[s.textBlock, { fontSize: 7 }]}>{stripMarkdown(sp.description)}</DirText>
                   </View>
                 ) : null}
               </View>

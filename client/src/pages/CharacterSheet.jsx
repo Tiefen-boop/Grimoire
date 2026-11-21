@@ -3,22 +3,17 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-
-// Splits on blank lines and gives each paragraph its own dir="auto" so RTL/LTR
-// is detected independently per paragraph rather than for the whole text block.
-function DescBlock({ text, className }) {
-  if (!text) return null
-  return text.split(/\n\n+/).map((para, i) => (
-    <p key={i} dir="auto" className={`${className}${i > 0 ? ' mt-2' : ''}`}
-       style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
-  ))
-}
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
+import Markdown, { MarkdownHelpLink } from '../components/Markdown'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
 import { evalFormula, canonicalizeFormula } from '../utils/formulaEval'
 import { effectBonus, effectSources, applyEffects, sourcesTitle, armorState, bestAcBase, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
 import EffectsEditor, { effectSummary } from '../components/EffectsEditor'
+
+// Description text rendered as markdown; each block gets its own dir="auto"
+// so RTL/LTR is detected per paragraph rather than for the whole text.
+const DescBlock = Markdown
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -880,7 +875,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, spell
                                 {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
                                 {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
                                 {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
-                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />}
+                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm" />}
                               </div>
                             )}
                           </div>
@@ -1220,9 +1215,10 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                             <AutoResizeTextarea
                               registerResult={register(`classes.${classIndex}.spells.${i}.description`)}
                               className="input w-full text-sm"
-                              placeholder="Description (optional)"
+                              placeholder="Description (optional, supports markdown)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            <div className="text-right"><MarkdownHelpLink /></div>
                             {/* Row 5: higher level */}
                             <div>
                               <label className="label text-xs mb-1">Using a Higher-Level Spell Slot</label>
@@ -1317,7 +1313,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                                   <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
                                 )}
                                 {sp.description && (
-                                  <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                  <DescBlock text={sp.description} className="text-stone-300 text-sm" />
                                 )}
                                 {sp.higher_level && (
                                   <div className="text-sm text-stone-300 whitespace-pre-wrap">
@@ -3479,7 +3475,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                                   </div>
                                 )}
                                 {item.description
-                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm" />
                                   : <p className="text-stone-500 text-sm italic">No description.</p>
                                 }
                               </div>
@@ -3608,8 +3604,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       )}
                     </div>
                     {/* Description */}
-                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none"
-                      rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none md:min-h-[16rem]"
+                      rows={3} placeholder="Description (optional, supports markdown)" style={{ whiteSpace: 'pre-wrap' }} />
+                    <div className="text-right"><MarkdownHelpLink /></div>
                     <EffectsEditor
                       effects={featEffects}
                       onChange={next => setValue(`features_list.${i}.effects`, next, { shouldDirty: true })}
@@ -3701,7 +3698,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {isExpanded && (
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
-                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm" />
                           : featEffects.length === 0 && <p className="text-stone-500 text-sm italic">No description.</p>
                         }
                         {featEffects.length > 0 && (

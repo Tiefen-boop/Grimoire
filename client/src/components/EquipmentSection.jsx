@@ -4,6 +4,7 @@ import { PlusIcon, TrashIcon, PencilIcon, CheckIcon, ChevronDownIcon, SparklesIc
 import Modal from './Modal'
 import { evalFormula, canonicalizeFormula } from '../utils/formulaEval'
 import { armorState, effectSources, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
+import Markdown, { MarkdownHelpLink } from './Markdown'
 import EffectsEditor, { effectSummary } from './EffectsEditor'
 
 function checkArmorProficiency(item, armorProfs) {
@@ -858,8 +859,9 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         )}
 
                         {/* Description */}
-                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
-                          rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none md:min-h-[16rem]"
+                          rows={3} placeholder="Description (optional, supports markdown)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <div className="text-right"><MarkdownHelpLink /></div>
                         <EffectsEditor item
                           effects={item.effects || []}
                           onChange={next => setValue(`equipment.${i}.effects`, next, { shouldDirty: true })}
@@ -1093,10 +1095,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                             {/* Description */}
                             {item.description
-                              ? item.description.split(/\n\n+/).map((para, i) => (
-                                  <p key={i} dir="auto" className={`text-stone-300 text-sm whitespace-pre-wrap${i > 0 ? ' mt-2' : ''}`}
-                                     style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
-                                ))
+                              ? <Markdown text={item.description} className="text-stone-300 text-sm" />
                               : !item.effects?.length && <p className="text-stone-500 text-sm italic">No description.</p>
                             }
                             {item.effects?.length > 0 && (

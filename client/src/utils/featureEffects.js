@@ -1,6 +1,6 @@
 import { evalFormula } from './formulaEval'
 
-// Effect shape stored on a feature: { target, value, condition, weapon? }
+// Effect shape stored on a feature or an inventory item: { target, value, condition, weapon? }
 //   target:    'initiative' | 'ac' | 'ac_calc' | 'speed' | 'max_hp'
 //              | 'ability:<ability>' | 'passive:<perception|insight|investigation>'
 //              | 'weapon_attack' | 'weapon_damage'
@@ -8,6 +8,7 @@ import { evalFormula } from './formulaEval'
 //   value:     formula string (e.g. '5', 'PROF/2', '2*LVL'), rounded down
 //   condition: see EFFECT_CONDITIONS
 //   weapon:    weapon filter for weapon_attack/weapon_damage (see WEAPON_FILTERS)
+//   mode:      'add' (default) or 'min' — "set to at least" (e.g. Gauntlets of Ogre Power: STR at least 19)
 
 const ALWAYS = { value: 'always', label: 'Always' }
 
@@ -24,13 +25,22 @@ const ARMOR_CONDITIONS = [
   { value: 'wearing_armor',      label: 'If wearing armor' },
 ]
 
-export const EFFECT_CONDITIONS = [ALWAYS, ...PROFICIENCY_CONDITIONS, ...ARMOR_CONDITIONS]
+// Items only
+const ATTUNED = { value: 'attuned', label: 'If attuned' }
 
-// Conditions that make sense for a given target
-export function conditionsForTarget(target) {
-  if (target?.startsWith('skill:')) return [ALWAYS, ...PROFICIENCY_CONDITIONS, ...ARMOR_CONDITIONS]
-  if (target?.startsWith('save:'))  return [ALWAYS, ...PROFICIENCY_CONDITIONS.filter(c => c.value !== 'expertise'), ...ARMOR_CONDITIONS]
-  return [ALWAYS, ...ARMOR_CONDITIONS]
+export const EFFECT_CONDITIONS = [ALWAYS, ATTUNED, ...PROFICIENCY_CONDITIONS, ...ARMOR_CONDITIONS]
+
+// Conditions that make sense for a given target (and whether the effect is on an item)
+export function conditionsForTarget(target, { item = false } = {}) {
+  const base = item ? [ALWAYS, ATTUNED] : [ALWAYS]
+  if (target?.startsWith('skill:')) return [...base, ...PROFICIENCY_CONDITIONS, ...ARMOR_CONDITIONS]
+  if (target?.startsWith('save:'))  return [...base, ...PROFICIENCY_CONDITIONS.filter(c => c.value !== 'expertise'), ...ARMOR_CONDITIONS]
+  return [...base, ...ARMOR_CONDITIONS]
+}
+
+// Everything that can carry effects: features, then inventory items
+export function effectSources(features, equipment) {
+  return [...(features || []), ...(equipment || []).filter(i => i?.effects?.length)]
 }
 
 export const WEAPON_FILTERS = [
@@ -44,6 +54,11 @@ export const WEAPON_FILTERS = [
 ]
 
 export const isWeaponTarget = target => target === 'weapon_attack' || target === 'weapon_damage'
+
+// Targets where "set to at least" makes sense (not weapons, AC calculation, speed or max HP)
+export const supportsMinMode = target =>
+  target === 'initiative' || target === 'ac' ||
+  /^(ability|passive|skill|save):/.test(target || '')
 
 export function weaponFilterLabel(filter) {
   if (filter?.startsWith('specific:')) return filter.slice(9)
@@ -84,9 +99,10 @@ function targetMatches(effectTarget, target) {
   return false
 }
 
-function conditionMet(condition, { proficient = false, expert = false, armor } = {}) {
+function conditionMet(condition, { proficient = false, expert = false, armor } = {}, source) {
   const { body = null, shield = false } = armor || {}
   switch (condition) {
+    case 'attuned':            return !!source?.attuned
     case 'not_proficient':     return !proficient && !expert
     case 'proficient':         return proficient || expert
     case 'expertise':          return expert
@@ -105,40 +121,53 @@ export function effectValue(formula, char) {
   return Number.isFinite(n) ? Math.floor(n) : null
 }
 
-// Total bonus applied to `target` by all features, plus where it came from.
+// Total bonus applied to `target` by all sources (features and items — see effectSources), plus where it came from.
 // `status` carries proficiency state (skills/saves), equipped armor (armorState) and the weapon (weapon targets).
-export function effectBonus(features, char, target, status = {}) {
+export function effectBonus(effectSourceList, char, target, status = {}) {
   let total = 0
   const sources = []
-  for (const feat of features || []) {
+  let min = null  // highest "set to at least" floor: { name, value }
+  for (const feat of effectSourceList || []) {
     for (const eff of feat?.effects || []) {
       if (!eff?.target || !targetMatches(eff.target, target)) continue
-      if (!conditionMet(eff.condition, status)) continue
+      if (!conditionMet(eff.condition, status, feat)) continue
       if (isWeaponTarget(target) && !weaponMatches(eff.weapon, status.weapon)) continue
       const value = effectValue(eff.value, char)
-      if (!value && target !== 'ac_calc') continue
       if (value === null) continue
+      if (eff.mode === 'min' && supportsMinMode(target)) {
+        if (!min || value > min.value) min = { name: feat.name || 'Unnamed', value }
+        continue
+      }
+      if (!value && target !== 'ac_calc') continue
       total += value
-      sources.push({ name: feat.name || 'Unnamed feature', value })
+      sources.push({ name: feat.name || 'Unnamed', value })
     }
   }
-  return { total, sources }
+  return { total, sources, min }
+}
+
+// Final value = base + bonuses, raised to the highest "set to at least" floor if that's higher.
+// When a floor wins, it is the only source shown (the bonuses no longer matter).
+export function applyEffects(base, fx) {
+  const added = base + fx.total
+  if (fx.min && fx.min.value > added) return { value: fx.min.value, sources: [{ ...fx.min, min: true }] }
+  return { value: added, sources: fx.sources }
 }
 
 // Base AC from 'AC calculation' effects (e.g. Unarmored Defense) vs. the normal base; highest wins
-export function bestAcBase(features, char, status, normalBase) {
-  const { sources } = effectBonus(features, char, 'ac_calc', status)
+export function bestAcBase(effectSourceList, char, status, normalBase) {
+  const { sources } = effectBonus(effectSourceList, char, 'ac_calc', status)
   const best = sources.reduce((b, s) => (s.value > (b?.value ?? -Infinity) ? s : b), null)
   if (best && best.value > normalBase) return { base: best.value, source: { ...best, base: true } }
   return { base: normalBase, source: null }
 }
 
 // Attack/damage effects for one weapon (or { unarmed: true })
-export function weaponEffects(features, char, weapon, armor) {
+export function weaponEffects(effectSourceList, char, weapon, armor) {
   const status = { weapon, armor }
   return {
-    attack: effectBonus(features, char, 'weapon_attack', status),
-    damage: effectBonus(features, char, 'weapon_damage', status),
+    attack: effectBonus(effectSourceList, char, 'weapon_attack', status),
+    damage: effectBonus(effectSourceList, char, 'weapon_damage', status),
   }
 }
 
@@ -151,7 +180,10 @@ export function addBonusToFormula(formula, bonus) {
 }
 
 export function sourcesTitle(sources) {
-  return sources.map(s => s.base ? `${s.name}: base ${s.value}` : `${s.name} ${s.value >= 0 ? '+' : ''}${s.value}`).join('\n')
+  return sources.map(s =>
+    s.base ? `${s.name}: base ${s.value}`
+    : s.min ? `${s.name}: at least ${s.value}`
+    : `${s.name} ${s.value >= 0 ? '+' : ''}${s.value}`).join('\n')
 }
 
 // List endpoints may return JSON columns as raw strings
@@ -170,8 +202,9 @@ export function effectiveMaxHp(char) {
     proficiency_bonus: char.proficiency_bonus,
     classes,
   }
-  const armor = armorState(parseMaybeJson(char.equipment) || [])
-  const total = effectBonus(features, stats, 'max_hp', { armor }).total
+  const equipment = parseMaybeJson(char.equipment) || []
+  const armor = armorState(equipment)
+  const total = effectBonus(effectSources(features, equipment), stats, 'max_hp', { armor }).total
   const applied = (char.exhaustion ?? 0) >= 4 ? Math.floor(total / 2) : total
   return (char.max_hp ?? 0) + applied
 }

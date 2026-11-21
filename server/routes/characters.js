@@ -11,7 +11,7 @@ const CHARACTER_FIELDS = [
   'strength','dexterity','constitution','intelligence','wisdom','charisma','ability_auto',
   'saving_throw_profs','skill_profs','skill_expertise',
   'proficiency_bonus','inspiration',
-  'armor_class','armor_class_manual','initiative_bonus','initiative_manual','speed','size','max_hp','current_hp','temp_hp',
+  'armor_class','armor_class_manual','initiative_bonus','initiative_manual','speed','size','max_hp','max_hp_auto','current_hp','temp_hp',
   'hit_dice','hit_dice_remaining','death_save_successes','death_save_failures',
   'attacks','equipment','copper','silver','electrum','gold','platinum',
   'personality_traits','ideals','bonds','flaws','features_and_traits',
@@ -85,12 +85,12 @@ router.get('/', (req, res) => {
     c.features_list = features
       .filter(f => f?.effects?.length)
       .map(f => ({ name: f.name, effects: f.effects }))
-    // Only equipped armor matters (armor conditions on effects)
+    // Only equipped armor (armor conditions) and items with effects matter here
     let equipment = []
     try { equipment = JSON.parse(c.equipment || '[]') } catch {}
     c.equipment = equipment
-      .filter(i => i?.type === 'armor' && i.equipped)
-      .map(i => ({ type: i.type, armor_category: i.armor_category, equipped: true }))
+      .filter(i => (i?.type === 'armor' && i.equipped) || i?.effects?.length)
+      .map(i => ({ name: i.name, type: i.type, armor_category: i.armor_category, equipped: i.equipped, attuned: i.attuned, effects: i.effects }))
   }
   res.json(chars)
 })

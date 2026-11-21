@@ -3,7 +3,8 @@ import { useFieldArray } from 'react-hook-form'
 import { PlusIcon, TrashIcon, PencilIcon, CheckIcon, ChevronDownIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import Modal from './Modal'
 import { evalFormula, canonicalizeFormula } from '../utils/formulaEval'
-import { armorState, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
+import { armorState, effectSources, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
+import EffectsEditor, { effectSummary } from './EffectsEditor'
 
 function checkArmorProficiency(item, armorProfs) {
   if (!item.armor_category) return null
@@ -338,7 +339,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
   }
 
   // Feature effects on weapon attack/damage (Archery, Dueling, …)
-  const fxFeatures = watch('features_list') || []
+  const fxFeatures = effectSources(watch('features_list'), allEquip)  // features + item effects
   const fxArmor    = armorState(allEquip)
   const weaponAtk = (item, formula) =>
     evalFormula(addBonusToFormula(formula, weaponEffects(fxFeatures, charStats, item, fxArmor).attack.total), weaponStats(item))
@@ -859,6 +860,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         {/* Description */}
                         <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
                           rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <EffectsEditor item
+                          effects={item.effects || []}
+                          onChange={next => setValue(`equipment.${i}.effects`, next, { shouldDirty: true })}
+                          charStats={charStats} />
                         <button type="button" onClick={confirmEdit}
                           className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
                           Save
@@ -904,6 +909,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <div className="flex items-center gap-1.5 flex-1 min-w-0">
                               <span className="text-stone-100 text-sm font-medium truncate">
                                 {item.name || <span className="text-stone-500 italic">Unnamed</span>}
+                                {item.effects?.length > 0 && (
+                                  <span className={`text-xs ml-1 ${item.effects.some(e => e.condition === 'attuned') && !item.attuned ? 'text-stone-500' : 'text-amber-400'}`}
+                                    title={item.effects.map(e => effectSummary(e, { item: true })).join('\n')}>✦</span>
+                                )}
                               </span>
                               {cat.type === 'weapon' && item.weapon_class && (() => {
                                 const classMatch = item.weapon_class === 'simple' ? weaponProfs.includes('Simple') : weaponProfs.includes('Martial')
@@ -1088,8 +1097,17 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                   <p key={i} dir="auto" className={`text-stone-300 text-sm whitespace-pre-wrap${i > 0 ? ' mt-2' : ''}`}
                                      style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
                                 ))
-                              : <p className="text-stone-500 text-sm italic">No description.</p>
+                              : !item.effects?.length && <p className="text-stone-500 text-sm italic">No description.</p>
                             }
+                            {item.effects?.length > 0 && (
+                              <ul className={`text-amber-300/90 text-xs space-y-0.5 ${item.description ? 'mt-2' : ''}`}>
+                                {item.effects.map((eff, j) => (
+                                  <li key={j} className={eff.condition === 'attuned' && !item.attuned ? 'text-stone-500' : ''}>
+                                    ✦ {effectSummary(eff, { item: true })}{eff.condition === 'attuned' && !item.attuned ? ' — not attuned, inactive' : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                         )}
                       </div>

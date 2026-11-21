@@ -1,7 +1,7 @@
 import React from 'react'
 import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer'
 import { evalFormula } from '../utils/formulaEval'
-import { effectBonus, armorState, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
+import { effectBonus, effectSources, applyEffects, armorState, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
 
 Font.register({
   family: 'NotoSans',
@@ -305,27 +305,29 @@ function CoreStatsPage({ d }) {
   }
 
   const armor = armorState(d.equipment)
-  const atkWithFx = (item, f) => addBonusToFormula(f, weaponEffects(d.features_list, charStats, item, armor).attack.total)
-  const dmgWithFx = (item, f) => addBonusToFormula(f, weaponEffects(d.features_list, charStats, item, armor).damage.total)
-  const passiveFx = key => effectBonus(d.features_list, charStats, `passive:${key}`, { armor }).total
+  const fxSources = effectSources(d.features_list, d.equipment)
+  const atkWithFx = (item, f) => addBonusToFormula(f, weaponEffects(fxSources, charStats, item, armor).attack.total)
+  const dmgWithFx = (item, f) => addBonusToFormula(f, weaponEffects(fxSources, charStats, item, armor).damage.total)
+  const passiveScore = (key, skill) =>
+    applyEffects(10 + skillBonus(SKILLS.find(sk => sk.name === skill)), effectBonus(fxSources, charStats, `passive:${key}`, { armor })).value
 
   const abilityMod = a => mod(d[a] ?? 10)
   const skillBonus = sk => {
     const base = abilityMod(sk.ability)
     const proficient = skillProfs.includes(sk.name)
     const expert = skillExp.includes(sk.name)
-    const fx = effectBonus(d.features_list, charStats, `skill:${sk.name}`, { proficient, expert, armor }).total
-    return base + (expert ? prof * 2 : proficient ? prof : 0) + fx
+    const fx = effectBonus(fxSources, charStats, `skill:${sk.name}`, { proficient, expert, armor })
+    return applyEffects(base + (expert ? prof * 2 : proficient ? prof : 0), fx).value
   }
   const saveBonus = a => {
     const proficient = savingProfs.includes(a)
-    const fx = effectBonus(d.features_list, charStats, `save:${a}`, { proficient, armor }).total
-    return abilityMod(a) + (proficient ? prof : 0) + fx
+    const fx = effectBonus(fxSources, charStats, `save:${a}`, { proficient, armor })
+    return applyEffects(abilityMod(a) + (proficient ? prof : 0), fx).value
   }
 
-  const passivePerception    = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Perception'))    + passiveFx('perception')
-  const passiveInsight       = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Insight'))       + passiveFx('insight')
-  const passiveInvestigation = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Investigation')) + passiveFx('investigation')
+  const passivePerception    = passiveScore('perception', 'Perception')
+  const passiveInsight       = passiveScore('insight', 'Insight')
+  const passiveInvestigation = passiveScore('investigation', 'Investigation')
 
   const classes  = d.classes || []
   const weapons  = (d.equipment || []).filter(e => e.type === 'weapon' && (e.attack_modifier || e.damage_roll))
@@ -693,7 +695,7 @@ function InventoryPage({ d }) {
               const versP    = (item.properties || []).find(p => p.name === 'Versatile')
               const versDmg  = item.versatile_damage_roll || versP?.extra
               const effDmg   = item.versatile_active && versDmg ? versDmg : dmgF
-              const fx       = weaponEffects(d.features_list, charStats, item, armorState(equipment))
+              const fx       = weaponEffects(effectSources(d.features_list, equipment), charStats, item, armorState(equipment))
               const atkV     = atkF ? fmtAtk(evalFormula(addBonusToFormula(atkF, fx.attack.total), weaponStats(item))) : null
               const dmgV     = effDmg ? evalFormula(addBonusToFormula(effDmg, fx.damage.total), charStats) : null
               const propsStr = (item.properties || []).map(propLabel).join(', ')

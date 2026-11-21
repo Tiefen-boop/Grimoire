@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import api from '../api/client'
+import { effectiveMaxHp } from '../utils/featureEffects'
 import { useAuth } from '../contexts/AuthContext'
 import { PlusIcon, TrashIcon, UserPlusIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 
@@ -238,7 +239,7 @@ function CharacterCard({ char, isDm, currentUserId, campaignId, campaignMembers,
             {char.level ? ` · Level ${char.level}` : ''}
           </div>
           <div className="text-sm text-stone-300 mt-1">
-            HP: <span className="text-green-400">{char.current_hp}</span>/{char.max_hp}
+            HP: <span className="text-green-400">{char.current_hp}</span>/{effectiveMaxHp(char)}
           </div>
         </div>
 

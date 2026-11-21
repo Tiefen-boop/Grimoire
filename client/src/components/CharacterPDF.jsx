@@ -1,6 +1,7 @@
 import React from 'react'
 import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer'
 import { evalFormula } from '../utils/formulaEval'
+import { effectBonus, armorState, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
 
 Font.register({
   family: 'NotoSans',
@@ -296,21 +297,35 @@ function CoreStatsPage({ d }) {
     item.armor_category != null
   )
 
-  const abilityMod = a => mod(d[a] ?? 10)
-  const skillBonus = sk => {
-    const base = abilityMod(sk.ability)
-    return base + (skillExp.includes(sk.name) ? prof * 2 : skillProfs.includes(sk.name) ? prof : 0)
-  }
-  const saveBonus = a => abilityMod(a) + (savingProfs.includes(a) ? prof : 0)
-
-  const passivePerception = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Perception'))
-  const passiveInsight    = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Insight'))
-
   const charStats = {
     strength: d.strength, dexterity: d.dexterity, constitution: d.constitution,
     intelligence: d.intelligence, wisdom: d.wisdom, charisma: d.charisma,
     proficiency_bonus: prof,
+    classes: d.classes || [],
   }
+
+  const armor = armorState(d.equipment)
+  const atkWithFx = (item, f) => addBonusToFormula(f, weaponEffects(d.features_list, charStats, item, armor).attack.total)
+  const dmgWithFx = (item, f) => addBonusToFormula(f, weaponEffects(d.features_list, charStats, item, armor).damage.total)
+  const passiveFx = key => effectBonus(d.features_list, charStats, `passive:${key}`, { armor }).total
+
+  const abilityMod = a => mod(d[a] ?? 10)
+  const skillBonus = sk => {
+    const base = abilityMod(sk.ability)
+    const proficient = skillProfs.includes(sk.name)
+    const expert = skillExp.includes(sk.name)
+    const fx = effectBonus(d.features_list, charStats, `skill:${sk.name}`, { proficient, expert, armor }).total
+    return base + (expert ? prof * 2 : proficient ? prof : 0) + fx
+  }
+  const saveBonus = a => {
+    const proficient = savingProfs.includes(a)
+    const fx = effectBonus(d.features_list, charStats, `save:${a}`, { proficient, armor }).total
+    return abilityMod(a) + (proficient ? prof : 0) + fx
+  }
+
+  const passivePerception    = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Perception'))    + passiveFx('perception')
+  const passiveInsight       = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Insight'))       + passiveFx('insight')
+  const passiveInvestigation = 10 + skillBonus(SKILLS.find(sk => sk.name === 'Investigation')) + passiveFx('investigation')
 
   const classes  = d.classes || []
   const weapons  = (d.equipment || []).filter(e => e.type === 'weapon' && (e.attack_modifier || e.damage_roll))
@@ -389,9 +404,13 @@ function CoreStatsPage({ d }) {
               <Text style={s.boxLabel}>PASSIVE PERCEPTION</Text>
               <Text style={s.boxValueSm}>{passivePerception}</Text>
             </View>
-            <View style={[s.box, s.flex1]}>
+            <View style={[s.box, s.flex1, { marginRight: 3 }]}>
               <Text style={s.boxLabel}>PASSIVE INSIGHT</Text>
               <Text style={s.boxValueSm}>{passiveInsight}</Text>
+            </View>
+            <View style={[s.box, s.flex1]}>
+              <Text style={s.boxLabel}>PASSIVE INVESTIGATION</Text>
+              <Text style={s.boxValueSm}>{passiveInvestigation}</Text>
             </View>
           </View>
         </View>
@@ -454,8 +473,8 @@ function CoreStatsPage({ d }) {
           {weapons.map((w, i) => {
             const atkF = w.finesse_active && w.finesse_attack_modifier ? w.finesse_attack_modifier : w.attack_modifier
             const dmgF = w.finesse_active && w.finesse_damage_roll ? w.finesse_damage_roll : w.damage_roll
-            const atkV = atkF ? fmtAtk(evalFormula(atkF, charStats)) : '—'
-            const dmgV = dmgF ? evalFormula(dmgF, charStats) : '—'
+            const atkV = atkF ? fmtAtk(evalFormula(atkWithFx(w, atkF), charStats)) : '—'
+            const dmgV = dmgF ? evalFormula(dmgWithFx(w, dmgF), charStats) : '—'
             const propsStr = (w.properties || []).map(propLabel).join(', ')
             return (
               <View key={i} style={[s.tblRow, i % 2 === 1 ? { backgroundColor: C.bgAlt } : {}]}>
@@ -476,8 +495,8 @@ function CoreStatsPage({ d }) {
           <SectionHeader>Unarmed Strike</SectionHeader>
           <View style={s.tblRow}>
             <Text style={[s.tblCellBold, { flex: 2 }]}>Unarmed Strike</Text>
-            <Text style={[s.tblCell, { flex: 1 }]}>{d.unarmed_attack_modifier ? fmtAtk(evalFormula(d.unarmed_attack_modifier, charStats)) : '—'}</Text>
-            <Text style={[s.tblCell, { flex: 1.5 }]}>{d.unarmed_damage_roll ? evalFormula(d.unarmed_damage_roll, charStats) : '—'}</Text>
+            <Text style={[s.tblCell, { flex: 1 }]}>{d.unarmed_attack_modifier ? fmtAtk(evalFormula(atkWithFx({ unarmed: true }, d.unarmed_attack_modifier), charStats)) : '—'}</Text>
+            <Text style={[s.tblCell, { flex: 1.5 }]}>{d.unarmed_damage_roll ? evalFormula(dmgWithFx({ unarmed: true }, d.unarmed_damage_roll), charStats) : '—'}</Text>
             <Text style={[s.tblCell, { flex: 3.5 }]} />
           </View>
         </View>
@@ -628,6 +647,7 @@ function InventoryPage({ d }) {
     strength: d.strength, dexterity: d.dexterity, constitution: d.constitution,
     intelligence: d.intelligence, wisdom: d.wisdom, charisma: d.charisma,
     proficiency_bonus: prof,
+    classes: d.classes || [],
   }
   const wpProfs = (d.weapon_profs || []).map(p => p.toLowerCase())
   const arProfs = d.armor_profs || []
@@ -673,8 +693,9 @@ function InventoryPage({ d }) {
               const versP    = (item.properties || []).find(p => p.name === 'Versatile')
               const versDmg  = item.versatile_damage_roll || versP?.extra
               const effDmg   = item.versatile_active && versDmg ? versDmg : dmgF
-              const atkV     = atkF ? fmtAtk(evalFormula(atkF, weaponStats(item))) : null
-              const dmgV     = effDmg ? evalFormula(effDmg, charStats) : null
+              const fx       = weaponEffects(d.features_list, charStats, item, armorState(equipment))
+              const atkV     = atkF ? fmtAtk(evalFormula(addBonusToFormula(atkF, fx.attack.total), weaponStats(item))) : null
+              const dmgV     = effDmg ? evalFormula(addBonusToFormula(effDmg, fx.damage.total), charStats) : null
               const propsStr = (item.properties || []).map(propLabel).join(', ')
               const notProfWeapon = cat.type === 'weapon' && item.weapon_class && !isWeaponProficient(item)
               const notProfArmor  = cat.type === 'armor'  && item.armor_category && !isArmorProficient(item)

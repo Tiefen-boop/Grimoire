@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import api from '../api/client'
+import { effectiveMaxHp } from '../utils/featureEffects'
 import { PlusIcon, TrashIcon, UserCircleIcon, DocumentDuplicateIcon } from '@heroicons/react/24/outline'
 
 export default function Characters() {
@@ -67,7 +68,7 @@ export default function Characters() {
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between">
-                <span className="text-sm text-stone-300">HP: <span className="text-green-400">{c.current_hp}</span>/{c.max_hp}</span>
+                <span className="text-sm text-stone-300">HP: <span className="text-green-400">{c.current_hp}</span>/{effectiveMaxHp(c)}</span>
                 <div className="flex gap-1">
                   <button
                     onClick={e => copyChar(e, c.id)}

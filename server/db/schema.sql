@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS characters (
   intelligence INTEGER NOT NULL DEFAULT 10,
   wisdom INTEGER NOT NULL DEFAULT 10,
   charisma INTEGER NOT NULL DEFAULT 10,
+  -- Abilities auto-calculated from feature effects (JSON array of ability names); others are manual
+  ability_auto TEXT NOT NULL DEFAULT '[]',
 
   -- Saving throw proficiencies (JSON array of ability names)
   saving_throw_profs TEXT NOT NULL DEFAULT '[]',

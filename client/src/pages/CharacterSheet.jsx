@@ -16,7 +16,8 @@ function DescBlock({ text, className }) {
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
-import { evalFormula } from '../utils/formulaEval'
+import { evalFormula, canonicalizeFormula } from '../utils/formulaEval'
+import { effectBonus, effectValue, sourcesTitle, conditionsForTarget, armorState, bestAcBase, weaponEffects, addBonusToFormula, isWeaponTarget, WEAPON_FILTERS, weaponFilterLabel } from '../utils/featureEffects'
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -50,6 +51,14 @@ const SKILLS = [
   { name: 'Stealth', ability: 'dexterity' },
   { name: 'Survival', ability: 'wisdom' },
 ]
+
+// New characters start with all abilities auto-calculated from this feature (10 each)
+const BASE_ABILITY_FEATURE = {
+  name: 'Base Ability Scores', source: '',
+  description: 'Your base ability scores. Edit this feature\'s effects to set them; racial bonuses, improvements and feats can be added as separate effects.',
+  has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '',
+  effects: ABILITIES.map(a => ({ target: `ability:${a}`, value: '10', condition: 'always' })),
+}
 
 const ALIGNMENTS = ['Lawful Good','Neutral Good','Chaotic Good','Lawful Neutral','True Neutral','Chaotic Neutral','Lawful Evil','Neutral Evil','Chaotic Evil']
 const SIZES = ['Tiny','Small','Medium','Large','Huge','Gargantuan']
@@ -239,6 +248,274 @@ function computeEffectiveSpeed(base, conditions, exhaustion) {
 }
 function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
+}
+
+// Small marker shown next to a stat that feature effects modify; click for the breakdown
+function EffectMarker({ label, sources, onShow }) {
+  if (!sources?.length) return null
+  return (
+    <button type="button" title={sourcesTitle(sources)}
+      onClick={e => { e.stopPropagation(); onShow({ label, sources }) }}
+      className="text-amber-400 hover:text-amber-300 text-xs leading-none px-0.5 shrink-0">✦</button>
+  )
+}
+
+const EFFECT_TARGET_GROUPS = [
+  { label: 'General', options: [
+    { value: 'initiative', label: 'Initiative' },
+    { value: 'ac',         label: 'AC (bonus)' },
+    { value: 'ac_calc',    label: 'AC calculation (base)' },
+    { value: 'speed',      label: 'Speed' },
+    { value: 'max_hp',     label: 'Max HP' },
+  ]},
+  { label: 'Ability scores', options: ABILITIES.map(a => ({ value: `ability:${a}`, label: `${ABILITY_SHORT[a]} score` })) },
+  { label: 'Passive scores', options: [
+    { value: 'passive:perception',    label: 'Passive Perception' },
+    { value: 'passive:insight',       label: 'Passive Insight' },
+    { value: 'passive:investigation', label: 'Passive Investigation' },
+  ]},
+  { label: 'Weapons', options: [
+    { value: 'weapon_attack', label: 'Weapon attack' },
+    { value: 'weapon_damage', label: 'Weapon damage' },
+  ]},
+  { label: 'Skills', options: [
+    { value: 'skill:*', label: 'All skills' },
+    ...SKILLS.map(sk => ({ value: `skill:${sk.name}`, label: sk.name })),
+  ]},
+  { label: 'Saving throws', options: [
+    { value: 'save:*', label: 'All saves' },
+    ...ABILITIES.map(a => ({ value: `save:${a}`, label: `${ABILITY_SHORT[a]} save` })),
+  ]},
+]
+const SPECIFIC_WEAPONS = Object.values(WEAPON_SPECIFIC).flat().sort()
+
+function effectTargetLabel(target) {
+  for (const g of EFFECT_TARGET_GROUPS) {
+    const opt = g.options.find(o => o.value === target)
+    if (opt) return opt.label
+  }
+  return target || '—'
+}
+
+function effectSummary(eff) {
+  const cond = conditionsForTarget(eff.target).find(c => c.value === eff.condition)
+  const value = String(eff.value ?? '').trim()
+  const amount = eff.target === 'ac_calc' ? `= ${value}` : /^[+\-]/.test(value) ? value : `+${value}`
+  const weapon = isWeaponTarget(eff.target) ? ` (${weaponFilterLabel(eff.weapon).toLowerCase()})` : ''
+  return `${effectTargetLabel(eff.target)} ${amount}${weapon}${cond && cond.value !== 'always' ? ` (${cond.label.toLowerCase()})` : ''}`
+}
+
+function FeatureEffectsEditor({ effects, onChange, charStats }) {
+  const [showHelp, setShowHelp] = useState(false)
+  const update = (idx, patch) => {
+    const next = effects.map((e, j) => {
+      if (j !== idx) return e
+      const merged = { ...e, ...patch }
+      if (!conditionsForTarget(merged.target).some(c => c.value === merged.condition)) merged.condition = 'always'
+      if (isWeaponTarget(merged.target) && !merged.weapon) merged.weapon = 'all'
+      if (!isWeaponTarget(merged.target)) delete merged.weapon
+      return merged
+    })
+    onChange(next)
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="label text-xs">Effects</div>
+        <button type="button" onClick={() => setShowHelp(true)}
+          className="text-xs text-sky-400 hover:text-sky-300 underline underline-offset-2">How do effects work?</button>
+      </div>
+      {effects.map((eff, idx) => {
+        const conds = conditionsForTarget(eff.target)
+        const val = effectValue(eff.value, charStats)
+        const invalid = String(eff.value ?? '').trim() !== '' && val === null
+        const isCalc = eff.target === 'ac_calc'
+        return (
+          <div key={idx} className="bg-stone-900/60 border border-stone-700 rounded-lg p-2 space-y-2">
+            {/* Applies to + formula */}
+            <div className="flex gap-2 flex-wrap items-end">
+              <label className="flex flex-col gap-0.5 w-48">
+                <span className="text-xs text-stone-500">Applies to</span>
+                <select value={eff.target} onChange={e => update(idx, { target: e.target.value })} className="input w-full">
+                  {EFFECT_TARGET_GROUPS.map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5 flex-1 min-w-48">
+                <span className="text-xs text-stone-500">
+                  {isCalc ? 'AC formula' : 'Bonus'} <span className={`tabular-nums ${invalid ? 'text-red-400' : 'text-stone-400'}`}>{invalid ? '— not a number' : `= ${isCalc ? (val ?? 0) : fmtMod(val ?? 0)}`}</span>
+                </span>
+                <input value={eff.value ?? ''} onChange={e => update(idx, { value: e.target.value })}
+                  onBlur={e => { const canon = canonicalizeFormula(e.target.value); if (canon !== e.target.value) update(idx, { value: canon }) }}
+                  className={`input w-full font-mono ${invalid ? 'border-red-600' : ''}`}
+                  placeholder={isCalc ? 'e.g. 10+DEX+CON' : 'e.g. 5, PROF/2, 2*LVL'}
+                  title="Numbers, STR…CHA, PROF, LVL, <Class>_LVL, min/max/floor/ceil/step" />
+              </label>
+              <button type="button" onClick={() => onChange(effects.filter((_, j) => j !== idx))}
+                className="text-stone-500 hover:text-red-400 p-1.5 rounded hover:bg-stone-700 shrink-0" title="Remove effect">
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Which weapons (weapon targets only) */}
+            {isWeaponTarget(eff.target) && (
+              <label className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-stone-500 w-10">With</span>
+                <select value={eff.weapon || 'all'} onChange={e => update(idx, { weapon: e.target.value })} className="input w-56">
+                  {WEAPON_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  <optgroup label="Specific weapon">
+                    {SPECIFIC_WEAPONS.map(w => <option key={w} value={`specific:${w}`}>{w}</option>)}
+                  </optgroup>
+                </select>
+              </label>
+            )}
+            {/* Condition */}
+            <label className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-stone-500 w-10">When</span>
+              <select value={eff.condition || 'always'} onChange={e => update(idx, { condition: e.target.value })} className="input w-56">
+                {conds.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </label>
+          </div>
+        )
+      })}
+      <button type="button" onClick={() => onChange([...effects, { target: 'initiative', value: '', condition: 'always' }])}
+        className="btn btn-secondary btn-sm">
+        <PlusIcon className="w-4 h-4 mr-1" /> Add Effect
+      </button>
+      {showHelp && <EffectsHelp onClose={() => setShowHelp(false)} />}
+    </div>
+  )
+}
+
+// ── In-app documentation for feature effects & formulas ───────────────────────
+function HelpTable({ rows }) {
+  return (
+    <table className="w-full text-sm mb-1">
+      <tbody>
+        {rows.map(([a, b], i) => (
+          <tr key={i} className="border-b border-stone-800 align-top">
+            <td className="py-1 pr-3 font-mono text-amber-300 whitespace-nowrap">{a}</td>
+            <td className="py-1 text-stone-300">{b}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function EffectsHelp({ onClose }) {
+  const H = ({ children }) => <h4 className="text-stone-100 font-semibold mt-5 mb-1.5">{children}</h4>
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-stone-900 border border-stone-700 rounded-xl shadow-xl max-w-2xl w-full max-h-full flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-700">
+          <h3 className="text-lg font-bold text-stone-100">Feature effects</h3>
+          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-200 p-1"><XMarkIcon className="w-5 h-5" /></button>
+        </div>
+        <div className="overflow-y-auto px-5 pb-5 text-sm text-stone-300 leading-relaxed">
+          <p className="mt-3">
+            Effects let a feature change numbers on the sheet. A feature can hold any number of effects, and they are always active
+            while the feature exists — remove the feature (or the effect) and its bonus disappears. Stats changed by effects show
+            a <span className="text-amber-400">✦</span>; tap it to see which features contribute.
+          </p>
+          <p className="mt-2">
+            Each effect has: <b>Applies to</b> (what it changes), a <b>Bonus</b> formula, a <b>When</b> condition, and — for
+            weapon effects — <b>With</b> (which weapons).
+          </p>
+
+          <H>Applies to</H>
+          <HelpTable rows={[
+            ['Initiative', 'Added to initiative.'],
+            ['AC (bonus)', 'Added to AC, after armor and shield.'],
+            ['AC calculation (base)', 'An alternative base AC formula (e.g. Unarmored Defense: 10+DEX+CON). The highest of normal armor / 10+DEX and all AC calculations is used; shields and AC bonuses still add on top.'],
+            ['Speed', 'Added to walking speed. Halved by exhaustion 2+, and 0 when a condition sets speed to 0.'],
+            ['Max HP', 'Added to max HP. Halved by exhaustion 4+.'],
+            ['STR … CHA score', 'Builds an auto-calculated ability score (see Ability scores below).'],
+            ['Passive Perception / Insight / Investigation', 'Added to that passive score only (e.g. Observant +5). Skill effects already flow into passives.'],
+            ['Weapon attack / Weapon damage', 'Added to the attack bonus or damage of matching weapons (see With).'],
+            ['A skill / All skills', 'Added to that skill (or every skill). Also flows into passive scores.'],
+            ['A save / All saves', 'Added to that saving throw (or every save).'],
+          ]} />
+
+          <H>When (conditions)</H>
+          <HelpTable rows={[
+            ['Always', 'No condition.'],
+            ['If not proficient', 'Skills & saves only: applies when you are not proficient (e.g. Jack of All Trades).'],
+            ['If proficient', 'Skills & saves only: applies when proficient (expertise counts as proficient).'],
+            ['If expertise', 'Skills only: applies when you have expertise.'],
+            ['If not wearing armor', 'No body armor equipped. A shield is allowed (Barbarian Unarmored Defense).'],
+            ['If no armor and no shield', 'Neither armor nor shield equipped (Monk Unarmored Defense / Movement).'],
+            ['If not wearing heavy armor', 'Anything but heavy armor (Barbarian Fast Movement).'],
+            ['If wearing armor', 'Any body armor equipped (Defense fighting style).'],
+          ]} />
+          <p>Armor conditions look at the armor marked as <b>equipped</b> in the inventory.</p>
+
+          <H>With (weapon effects)</H>
+          <HelpTable rows={[
+            ['All weapons', 'Every weapon (not the unarmed strike).'],
+            ['Melee / Ranged weapons', 'By the weapon\'s Melee/Ranged setting. Thrown melee weapons count as melee.'],
+            ['Simple / Martial weapons', 'By the weapon\'s Simple/Martial setting.'],
+            ['One-handed melee weapons', 'Melee weapons without Two-Handed, and not currently used two-handed (Versatile off) — e.g. Dueling.'],
+            ['Unarmed strike', 'Only the unarmed strike row.'],
+            ['Specific weapon', 'Only weapons of that type (e.g. Longbow).'],
+          ]} />
+
+          <H>Formulas</H>
+          <p className="mb-1.5">Formulas are used by effects and by weapon/armor fields. Results of effects are rounded down. Letters are case-insensitive, and abbreviations are rewritten to the standard form when you leave the field.</p>
+          <HelpTable rows={[
+            ['STR DEX CON INT WIS CHA', 'Ability modifier. Also: strength, dexterity, constitution, intelligence, wisdom, charisma.'],
+            ['PROF', 'Proficiency bonus. Also: PB, proficiency.'],
+            ['LVL', 'Total character level. Also: LV, level, CLASS_LVL.'],
+            ['<Class>_LVL', 'Level in one class, e.g. MONK_LVL, BLOOD_HUNTER_LVL (spaces become _). 0 if you don\'t have the class. Also: _LV, _level.'],
+            ['+ - * / ( )', 'Arithmetic.'],
+            ['min(a, b, …) / max(a, b, …)', 'Smallest / largest value, e.g. max(1, CHA).'],
+            ['floor(x) / ceil(x)', 'Round down / up, e.g. ceil(PROF/2).'],
+            ['step(x, t1, v1, t2, v2, …)', 'Value for the highest threshold x reached; 0 below the first. E.g. step(MONK_LVL, 2,10, 6,15) is 0 at level 1, 10 at 2–5, 15 from 6.'],
+            ['1d8, 2d6', 'Dice — kept as-is in damage. Not allowed in effects (effects must be a number).'],
+            ['[fire]', 'Damage type tag in damage formulas, e.g. 1d8+STR[slashing] + 2d6[fire].'],
+          ]} />
+
+          <H>Ability scores</H>
+          <p>
+            Like AC and initiative, each ability score is either <b>manual</b> (the number you typed) or <b>auto</b>.
+            Clear a score and leave the field to make it auto: it becomes the sum of that ability's effects. There is no cap — keep the 5e limit of 20 in mind yourself (some features, like Primal Champion, go beyond it).
+            Type a number to make it manual again (effects are then ignored for that score).
+            New characters start with a <b>Base Ability Scores</b> feature giving 10 to each — edit its effects to set your
+            base scores, and add racial bonuses / improvements as effects on their own features.
+            Ability effects can't use ability modifiers in their formulas.
+          </p>
+
+          <H>Manual values</H>
+          <p>If you type an AC or initiative value yourself, that value replaces everything, including effects. Clear it to go back to auto.
+            Speed and max HP show the stored value plus effects; editing them stores the value without the effects.</p>
+
+          <H>Examples</H>
+          <HelpTable rows={[
+            ['Alert', 'Initiative · 5'],
+            ['Jack of All Trades', 'All skills · PROF/2 · If not proficient; plus Initiative · PROF/2'],
+            ['Remarkable Athlete', 'Athletics, Acrobatics, Sleight of Hand, Stealth · ceil(PROF/2) · If not proficient; plus Initiative · ceil(PROF/2)'],
+            ['Tough', 'Max HP · 2*LVL'],
+            ['Dwarven Toughness', 'Max HP · LVL'],
+            ['Draconic Resilience', 'Max HP · SORCERER_LVL; AC calculation · 13+DEX · If not wearing armor'],
+            ['Archery', 'Weapon attack · 2 · With ranged weapons'],
+            ['Dueling', 'Weapon damage · 2 · With one-handed melee weapons'],
+            ['Defense', 'AC (bonus) · 1 · If wearing armor'],
+            ['Unarmored Defense (Barbarian)', 'AC calculation · 10+DEX+CON · If not wearing armor'],
+            ['Unarmored Defense (Monk)', 'AC calculation · 10+DEX+WIS · If no armor and no shield'],
+            ['Unarmored Movement', 'Speed · step(MONK_LVL, 2,10, 6,15, 10,20, 14,25, 18,30) · If no armor and no shield'],
+            ['Fast Movement', 'Speed · 10 · If not wearing heavy armor'],
+            ['Observant', 'Passive Perception · 5; Passive Investigation · 5'],
+            ['Aura of Protection', 'All saves · max(1, CHA)'],
+            ['Ability Score Improvement', 'STR score · 2 (or two scores · 1)'],
+          ]} />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function parseArithExpr(str) {
@@ -1545,7 +1822,7 @@ export default function CharacterSheet() {
       character_backstory: '', allies_and_organizations: '',
       additional_features_and_traits: '', treasure: '',
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
-      passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
+      passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0, ability_auto: [],
       speed_base: null, max_hp_base: null,
       unarmed_attack_modifier: '', unarmed_damage_roll: '',
       weapon_profs: [], armor_profs: [], tool_profs: [], languages: [],
@@ -1571,6 +1848,8 @@ export default function CharacterSheet() {
   const [maxHpDisplay,  setMaxHpDisplay]  = useState(null)
   const [acEdit,   setAcEdit]   = useState(null)
   const [initEdit, setInitEdit] = useState(null)
+  const [speedEdit, setSpeedEdit] = useState(null)
+  const [effectInfo, setEffectInfo] = useState(null)  // { label, sources } for the effect-breakdown popup
   const currHpFocused = useRef(false)
   const maxHpFocused  = useRef(false)
   const [abilityDisplay, setAbilityDisplay] = useState({})
@@ -1847,7 +2126,53 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const _xpCap = (_xpTotalLevel + 1) <= 20 ? XP_THRESHOLDS[_xpTotalLevel + 1] : null
   const xpFull = !!(_xpCap && watchedXp >= _xpCap)
 
-  const watchedMaxHp  = watch('max_hp')     ?? 0
+  const charStats = {
+    strength: watchedAbilities[0], dexterity: watchedAbilities[1],
+    constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
+    wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
+    proficiency_bonus: watchedProfBonus, level: _xpTotalLevel || 1, classes: allClasses
+  }
+
+  // Feature effects — computed live on top of stored values, never written back
+  const watchedFeatures = watch('features_list') || []
+  const fxConditions    = watch('conditions') || []
+  const fxExhaustion    = watch('exhaustion') ?? 0
+  const currentArmor    = armorState(watch('equipment'))
+  const getEffect       = (target, status) => effectBonus(watchedFeatures, charStats, target, { armor: currentArmor, ...status })
+  const initFx  = getEffect('initiative')
+  const acFx    = getEffect('ac')
+
+  // Auto-calculated ability scores: sum of 'ability:<name>' effects (uncapped — Primal Champion, homebrew).
+  // Evaluated with neutral (10) scores so an ability effect can't feed back into itself.
+  const abilityAuto = watch('ability_auto') || []
+  const neutralStats = { ...charStats, strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10 }
+  const abilityFx = Object.fromEntries(ABILITIES.map(a =>
+    [a, effectBonus(watchedFeatures, neutralStats, `ability:${a}`, { armor: currentArmor })]))
+  const autoAbilityScore = a => abilityFx[a].total
+
+  // Keep stored scores of auto abilities in sync, so everything else (mods, PDF, lists) just reads them
+  const autoAbilityKey = JSON.stringify(ABILITIES.map(a => abilityAuto.includes(a) ? autoAbilityScore(a) : null))
+  useEffect(() => {
+    if (loading || readOnly) return
+    for (const a of ABILITIES) {
+      if (!abilityAuto.includes(a)) continue
+      const v = autoAbilityScore(a)
+      if (watch(a) !== v) setValue(a, v, { shouldDirty: true })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAbilityKey, loading, readOnly])
+  const speedFx = getEffect('speed')
+  const hpFx    = getEffect('max_hp')
+  // Mirror condition/exhaustion rules already applied to the stored speed & max HP
+  const speedFxApplied = (fxConditions.some(c => SPEED_ZERO_CONDITIONS.has(c)) || fxExhaustion >= 5) ? 0
+    : fxExhaustion >= 2 ? Math.floor(speedFx.total / 2) : speedFx.total
+  const hpFxApplied = fxExhaustion >= 4 ? Math.floor(hpFx.total / 2) : hpFx.total
+
+  const storedSpeed   = watch('speed') ?? 0
+  const effectiveSpeed = storedSpeed + speedFxApplied
+
+  const storedMaxHp   = watch('max_hp')     ?? 0
+  const watchedMaxHp  = storedMaxHp + hpFxApplied
   const watchedCurrHp = watch('current_hp') ?? 0
   const watchedTempHp = watch('temp_hp')    ?? 0
   const safeMax       = watchedMaxHp > 0 ? watchedMaxHp : 1
@@ -1856,19 +2181,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const redFillPct    = Math.min(watchedCurrHp, watchedMaxHp) / safeMax * hpBarWidthPct
   const greenFillPct  = Math.min(watchedTempHp / safeMax, 1) * 100
 
-  const autoInitBonus = mod(watchedAbilities[1] ?? 10)
-
-  const charStats = {
-    strength: watchedAbilities[0], dexterity: watchedAbilities[1],
-    constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
-    wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
-    proficiency_bonus: watchedProfBonus
-  }
+  const autoInitBonus = mod(watchedAbilities[1] ?? 10) + initFx.total
 
   const hasNonProfArmor = (watch('equipment') || []).some(
     item => item.type === 'armor' && item.equipped && checkArmorProficiency(item, watchedArmorProfs) === false
   )
 
+  let acBaseSource = null
   const autoAC = (() => {
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
     const body = equipped.filter(i => i.armor_category !== 'shield')
@@ -1878,9 +2197,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       const acs = body.map(i => parseFloat(evalFormula(i.ac_formula, charStats)) || 0)
       base = Math.max(...acs)
     }
+    // 'AC calculation' effects (Unarmored Defense etc.) replace the base when higher
+    const calc = bestAcBase(watchedFeatures, charStats, { armor: currentArmor }, base)
+    acBaseSource = calc.source
     const shieldBonus = shields.reduce((sum, i) => sum + (parseFloat(evalFormula(i.ac_formula, charStats)) || 0), 0)
-    return base + shieldBonus
+    return calc.base + shieldBonus + acFx.total
   })()
+  const acSources = acBaseSource ? [acBaseSource, ...acFx.sources] : acFx.sources
 
   const watchedHdRemaining    = watch('hit_dice_remaining') || ''
   const watchedDeathSuccesses = watch('death_save_successes') ?? 0
@@ -2171,7 +2494,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   useEffect(() => {
     if (isNew) {
-      api.post('/characters', { name: '' })
+      api.post('/characters', { name: '', ability_auto: ABILITIES, features_list: [BASE_ABILITY_FEATURE] })
         .then(r => navigate(`/characters/${r.data.id}`, { replace: true, state: location.state }))
         .catch(() => { setError('Failed to create character'); setLoading(false) })
       return
@@ -2201,18 +2524,27 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     return mod(watchedAbilities[idx] || 10)
   }, [watchedAbilities])
 
-  const getSavingThrow = useCallback((ability) => {
+  const getSaveFx = (ability) =>
+    getEffect(`save:${ability}`, { proficient: watchedProfs.includes(ability) })
+
+  const getSkillFx = (skill) =>
+    getEffect(`skill:${skill.name}`, {
+      proficient: watchedSkillProfs.includes(skill.name),
+      expert: watchedSkillExp.includes(skill.name),
+    })
+
+  const getSavingThrow = (ability) => {
     const base = getAbilityMod(ability)
     const proficient = watchedProfs.includes(ability)
-    return base + (proficient ? watchedProfBonus : 0)
-  }, [getAbilityMod, watchedProfs, watchedProfBonus])
+    return base + (proficient ? watchedProfBonus : 0) + getSaveFx(ability).total
+  }
 
-  const getSkillBonus = useCallback((skill) => {
+  const getSkillBonus = (skill) => {
     const base = getAbilityMod(skill.ability)
     const proficient = watchedSkillProfs.includes(skill.name)
     const expert = watchedSkillExp.includes(skill.name)
-    return base + (expert ? watchedProfBonus * 2 : proficient ? watchedProfBonus : 0)
-  }, [getAbilityMod, watchedSkillProfs, watchedSkillExp, watchedProfBonus])
+    return base + (expert ? watchedProfBonus * 2 : proficient ? watchedProfBonus : 0) + getSkillFx(skill).total
+  }
 
   function toggleArrayValue(fieldName, value) {
     const current = watch(fieldName) || []
@@ -2230,7 +2562,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         import('@react-pdf/renderer'),
         import('../components/CharacterPDF'),
       ])
-      const blob = await pdf(<CharacterPDF data={watch()} />).toBlob()
+      // Pass the values as shown on the sheet (auto AC/initiative, feature effects applied)
+      const data = {
+        ...watch(),
+        armor_class:      watchedAcManual   ? watchedStoredAC   : autoAC,
+        initiative_bonus: watchedInitManual ? watchedStoredInit : autoInitBonus,
+        speed:            effectiveSpeed,
+        max_hp:           watchedMaxHp,
+      }
+      const blob = await pdf(<CharacterPDF data={data} />).toBlob()
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement('a')
       a.href     = url
@@ -2637,7 +2977,12 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             const c = ABILITY_COLORS[ability]
             return (
               <div key={ability} className={`stat-box border ${c.border} text-center`}>
-                <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${c.label}`}>{ABILITY_SHORT[ability]}</div>
+                <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${c.label}`}>
+                  {ABILITY_SHORT[ability]}
+                  {abilityAuto.includes(ability)
+                    ? <EffectMarker label={`${ABILITY_SHORT[ability]} score`} sources={abilityFx[ability].sources} onShow={setEffectInfo} />
+                    : null}
+                </div>
                 <input
                   type="text" inputMode="text"
                   value={abilityFocusedRef.current === ability ? (abilityDisplay[ability] ?? '') : (watchedAbilities[i] ?? 10)}
@@ -2647,13 +2992,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     abilityFocusedRef.current = null
                     const raw = (abilityDisplay[ability] ?? '').trim()
                     const prev = watchedAbilities[i] ?? 10
-                    if (!raw) { setAbilityDisplay(p => ({ ...p, [ability]: null })); return }
+                    setAbilityDisplay(p => ({ ...p, [ability]: null }))
+                    if (!raw) {
+                      // Empty → auto-calculate from feature effects (like AC / initiative)
+                      if (!abilityAuto.includes(ability)) setValue('ability_auto', [...abilityAuto, ability], { shouldDirty: true })
+                      return
+                    }
                     const leadingOp = raw.match(/^([+\-*/])(.+)$/)
                     let result = leadingOp ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`) : parseArithExpr(raw)
                     if (result === null) result = prev
-                    const final = Math.min(30, Math.max(1, Math.round(result)))
+                    const final = Math.round(result)
+                    if (abilityAuto.includes(ability) && final === prev) return  // unchanged — stay auto
                     setValue(ability, final, { shouldDirty: true })
-                    setAbilityDisplay(p => ({ ...p, [ability]: null }))
+                    if (abilityAuto.includes(ability)) setValue('ability_auto', abilityAuto.filter(a => a !== ability), { shouldDirty: true })
                   }}
                   onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className={`no-spinner bg-transparent text-center text-2xl font-bold w-full focus:outline-none py-0.5 mb-0.5 ${c.text}`}
@@ -2681,6 +3032,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>
                       {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
                     </span>
+                    <EffectMarker label={`${ABILITY_SHORT[ability]} save`} sources={getSaveFx(ability).sources} onShow={setEffectInfo} />
                     <span className={`text-sm tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
                   </div>
                 )
@@ -2688,22 +3040,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </div>
           </div>
           <div className="flex flex-col gap-3 justify-start">
-            {(() => {
-              const passivePerception = 10 + getSkillBonus(SKILLS.find(s => s.name === 'Perception'))
-              const passiveInsight    = 10 + getSkillBonus(SKILLS.find(s => s.name === 'Insight'))
+            {[
+              { key: 'perception',    skill: 'Perception',    label: 'Passive Perception',    ability: 'wisdom' },
+              { key: 'insight',       skill: 'Insight',       label: 'Passive Insight',       ability: 'wisdom' },
+              { key: 'investigation', skill: 'Investigation', label: 'Passive Investigation', ability: 'intelligence' },
+            ].map(p => {
+              const fx = getEffect(`passive:${p.key}`)
+              const value = 10 + getSkillBonus(SKILLS.find(s => s.name === p.skill)) + fx.total
+              const c = ABILITY_COLORS[p.ability]
               return (
-                <>
-                  <div className={`stat-box border ${ABILITY_COLORS.wisdom.border} text-center`}>
-                    <div className="label text-xs text-center">Passive Perception</div>
-                    <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS.wisdom.text}`}>{passivePerception}</div>
-                  </div>
-                  <div className={`stat-box border ${ABILITY_COLORS.wisdom.border} text-center`}>
-                    <div className="label text-xs text-center">Passive Insight</div>
-                    <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS.wisdom.text}`}>{passiveInsight}</div>
-                  </div>
-                </>
+                <div key={p.key} className={`stat-box border ${c.border} text-center`}>
+                  <div className="label text-xs text-center">{p.label}<EffectMarker label={p.label} sources={fx.sources} onShow={setEffectInfo} /></div>
+                  <div className={`text-2xl font-bold text-center py-1 ${c.text}`}>{value}</div>
+                </div>
               )
-            })()}
+            })}
           </div>
         </div>
 
@@ -2738,6 +3089,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>
                     {skill.name}{hasNonProfArmor && (skill.ability === 'strength' || skill.ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
                   </span>
+                  <EffectMarker label={skill.name} sources={getSkillFx(skill).sources} onShow={setEffectInfo} />
                   <span className={`text-xs font-medium ${c.label}`}>{ABILITY_SHORT[skill.ability]}</span>
                   <span className={`text-sm tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
                 </div>
@@ -2761,6 +3113,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 style={{ width: `${redFillPct}%` }} />
               <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
                 <span className="text-red-200 font-semibold text-sm select-none">HP</span>
+                <EffectMarker label="Max HP" sources={hpFx.sources} onShow={setEffectInfo} />
                 <input type="text" inputMode="text"
                   value={currHpFocused.current ? (currHpDisplay ?? '') : (watchedCurrHp ?? 0)}
                   onFocus={() => { currHpFocused.current = true; setCurrHpDisplay(String(watchedCurrHp ?? 0)) }}
@@ -2812,7 +3165,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       : parseArithExpr(raw)
                     if (result === null) result = prev
                     const newMax = Math.max(0, Math.round(result))
-                    setValue('max_hp', newMax, { shouldDirty: true })
+                    setValue('max_hp', Math.max(0, newMax - hpFxApplied), { shouldDirty: true })
                     const curr = watchedCurrHp ?? 0
                     const clampedCurr = Math.min(curr, newMax)
                     if (curr > newMax) setValue('current_hp', clampedCurr, { shouldDirty: true })
@@ -2893,7 +3246,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     fill="#292524" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10" style={{ paddingBottom: '20%' }}>
-                  <span className="label text-xs text-center select-none">AC</span>
+                  <span className="label text-xs text-center select-none">AC<EffectMarker label="AC" sources={watchedAcManual ? [] : acSources} onShow={setEffectInfo} /></span>
                   <input type="text" inputMode="numeric"
                     value={acEdit !== null ? acEdit : String(watchedAcManual ? watchedStoredAC : autoAC)}
                     onFocus={() => setAcEdit(String(watchedAcManual ? watchedStoredAC : autoAC))}
@@ -2920,16 +3273,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
             {/* Speed */}
             <div className="flex-1 stat-box flex flex-col items-center justify-center">
-              <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾</div>
-              <input type="number"
-                {...register('speed', { valueAsNumber: true })}
+              <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾<EffectMarker label="Speed" sources={speedFx.sources} onShow={setEffectInfo} /></div>
+              <input type="text" inputMode="numeric"
+                value={speedEdit !== null ? speedEdit : String(effectiveSpeed)}
+                onFocus={() => setSpeedEdit(String(effectiveSpeed))}
+                onChange={e => setSpeedEdit(e.target.value)}
+                onBlur={() => {
+                  const n = parseInt((speedEdit ?? '').trim())
+                  if (!isNaN(n)) setValue('speed', Math.max(0, n - speedFxApplied), { shouldDirty: true })
+                  setSpeedEdit(null)
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                title={sourcesTitle(speedFx.sources) || undefined}
                 className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1"
                 disabled={readOnly} />
             </div>
 
             {/* Initiative */}
             <div className="flex-1 stat-box flex flex-col items-center justify-center">
-              <div className="label text-xs text-center">Initiative</div>
+              <div className="label text-xs text-center">Initiative<EffectMarker label="Initiative" sources={watchedInitManual ? [] : initFx.sources} onShow={setEffectInfo} /></div>
               <input type="text" inputMode="numeric"
                 value={initEdit !== null ? initEdit : fmtMod(watchedInitManual ? watchedStoredInit : autoInitBonus)}
                 onFocus={() => setInitEdit(String(watchedInitManual ? watchedStoredInit : autoInitBonus))}
@@ -2976,7 +3338,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>
                       {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
                     </div>
-                    <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</div>
+                    <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}<EffectMarker label={`${ABILITY_SHORT[ability]} save`} sources={getSaveFx(ability).sources} onShow={setEffectInfo} /></div>
                     {isProficient && <div className={`w-2 h-2 rounded-full mx-auto mt-0.5 ${c.dot}`} />}
                   </div>
                 )
@@ -3104,8 +3466,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   {(() => {
                     const unarmedAtk = watch('unarmed_attack_modifier') || ''
                     const unarmedDmg = watch('unarmed_damage_roll') || ''
-                    const atkValue   = evalFormula(unarmedAtk || 'STR+prof', charStats)
-                    const dmgValue   = evalFormula(unarmedDmg || '1+STR',    charStats)
+                    const fx         = weaponEffects(watchedFeatures, charStats, { unarmed: true }, currentArmor)
+                    const atkValue   = evalFormula(addBonusToFormula(unarmedAtk || 'STR+PROF', fx.attack.total), charStats)
+                    const dmgValue   = evalFormula(addBonusToFormula(unarmedDmg || '1+STR', fx.damage.total), charStats)
                     return (
                       <tr className="border-b border-stone-700 bg-stone-900/40">
                         <td className="py-2 pr-2">
@@ -3121,13 +3484,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         </td>
                         <td className="py-2 pr-3 text-center">
                           {unarmedEditing && !readOnly
-                            ? <input {...register('unarmed_attack_modifier')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+prof" />
-                            : <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}</span>}
+                            ? <input {...register('unarmed_attack_modifier', { onBlur: e => { const c = canonicalizeFormula(e.target.value); if (c !== e.target.value) setValue('unarmed_attack_modifier', c, { shouldDirty: true }) } })} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+PROF" />
+                            : <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}<EffectMarker label="Unarmed attack" sources={fx.attack.sources} onShow={setEffectInfo} /></span>}
                         </td>
                         <td className="py-2 pr-3 text-center">
                           {unarmedEditing && !readOnly
-                            ? <input {...register('unarmed_damage_roll')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="1+STR" />
-                            : <span className="text-stone-100 font-bold text-base">{dmgValue}</span>}
+                            ? <input {...register('unarmed_damage_roll', { onBlur: e => { const c = canonicalizeFormula(e.target.value); if (c !== e.target.value) setValue('unarmed_damage_roll', c, { shouldDirty: true }) } })} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="1+STR" />
+                            : <span className="text-stone-100 font-bold text-base">{dmgValue}<EffectMarker label="Unarmed damage" sources={fx.damage.sources} onShow={setEffectInfo} /></span>}
                         </td>
                         <td className="py-2 text-center">
                           <span className="text-stone-600">—</span>
@@ -3145,8 +3508,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     const dmgFormula = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
                     const proficient = checkWeaponProficiency(item, watchedWeaponProfs)
                     const evalStats  = proficient === false ? { ...charStats, proficiency_bonus: 0 } : charStats
-                    const atkValue   = atkFormula ? evalFormula(atkFormula, evalStats) : '—'
-                    const dmgValue   = dmgFormula ? evalFormula(dmgFormula, evalStats) : '—'
+                    const fx         = weaponEffects(watchedFeatures, charStats, item, currentArmor)
+                    const atkValue   = atkFormula ? evalFormula(addBonusToFormula(atkFormula, fx.attack.total), evalStats) : '—'
+                    const dmgValue   = dmgFormula ? evalFormula(addBonusToFormula(dmgFormula, fx.damage.total), evalStats) : '—'
                     const isExpanded = expandedWeapons.has(i)
                     const props      = item.properties || []
 
@@ -3167,10 +3531,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             </div>
                           </td>
                           <td className="py-2 pr-3 text-center">
-                            <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}</span>
+                            <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}{atkFormula && <EffectMarker label={`${item.name || 'Weapon'} attack`} sources={fx.attack.sources} onShow={setEffectInfo} />}</span>
                           </td>
                           <td className="py-2 pr-3 text-center">
-                            <span className="text-stone-100 font-bold text-base">{dmgValue}</span>
+                            <span className="text-stone-100 font-bold text-base">{dmgValue}{dmgFormula && <EffectMarker label={`${item.name || 'Weapon'} damage`} sources={fx.damage.sources} onShow={setEffectInfo} />}</span>
                           </td>
                           <td className="py-2 text-center" onClick={e => e.stopPropagation()}>
                             {item.has_charges ? (
@@ -3298,6 +3662,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             const featChargesCur    = watch(`features_list.${i}.charges_current`)
             const featChargesMax    = watch(`features_list.${i}.charges_max`)
             const featChargesRech   = watch(`features_list.${i}.charges_recharge`)
+            const featEffects       = watch(`features_list.${i}.effects`) || []
             const rechLabel = featChargesRech === 'short' ? 'Short Rest' : featChargesRech === 'long' ? 'Long Rest' : null
             return (
               <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingFeatureId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
@@ -3358,6 +3723,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {/* Description */}
                     <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none"
                       rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                    <FeatureEffectsEditor
+                      effects={featEffects}
+                      onChange={next => setValue(`features_list.${i}.effects`, next, { shouldDirty: true })}
+                      charStats={charStats} />
                   </div>
                 ) : (
                   <div
@@ -3396,6 +3765,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             {featSource && (
                               <span className="text-stone-500 text-xs">({featSource})</span>
                             )}
+                            {featEffects.length > 0 && (
+                              <span className="text-amber-400 text-xs" title={featEffects.map(effectSummary).join('\n')}>✦</span>
+                            )}
                           </div>
                           {/* Group 2: charges + Use — wraps as a unit after group 1 */}
                           {featHasCharges && (
@@ -3432,8 +3804,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
                           ? <DescBlock text={featDesc} className="text-stone-300 text-sm whitespace-pre-wrap" />
-                          : <p className="text-stone-500 text-sm italic">No description.</p>
+                          : featEffects.length === 0 && <p className="text-stone-500 text-sm italic">No description.</p>
                         }
+                        {featEffects.length > 0 && (
+                          <ul className={`text-amber-300/90 text-xs space-y-0.5 ${featDesc ? 'mt-2' : ''}`}>
+                            {featEffects.map((eff, j) => <li key={j}>✦ {effectSummary(eff)}</li>)}
+                          </ul>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3443,7 +3820,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           })}
         </div>
         {!readOnly && (
-          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '' }) }}
+          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '', effects: [] }) }}
             className="btn btn-secondary btn-sm">
             <PlusIcon className="w-4 h-4 mr-1" /> Add Feature
           </button>
@@ -3769,6 +4146,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         onCancel={() => setConcentratePending(null)}
         confirmLabel="Switch">
         Already concentrating on <strong>{concentratingInfo?.name}</strong><br />Are you sure?
+      </Modal>
+
+      <Modal open={!!effectInfo} title={`${effectInfo?.label ?? ''} — feature effects`}
+        onCancel={() => setEffectInfo(null)} cancelLabel="Close">
+        <ul className="space-y-1">
+          {(effectInfo?.sources || []).map((src, i) => (
+            <li key={i} className="flex justify-between gap-4">
+              <span>{src.name}</span>
+              <span className="tabular-nums text-amber-300">{src.base ? `base ${src.value}` : fmtMod(src.value)}</span>
+            </li>
+          ))}
+        </ul>
       </Modal>
 
       {showShortRestModal && (

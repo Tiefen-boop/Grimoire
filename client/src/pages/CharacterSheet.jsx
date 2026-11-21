@@ -2972,7 +2972,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Combat */}
-      <Section title={<span className="text-red-300">⚔️ Combat</span>} sectionKey="Combat" locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+      <Section title={<span className="text-red-300">⚔️ Combat</span>} sectionKey="Combat" extraClass={activeTab === 'combat' && watchedInspiration ? 'inspiration-active' : ''} locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
 
           {/* HP + Temp HP bars */}

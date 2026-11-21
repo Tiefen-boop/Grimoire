@@ -84,7 +84,7 @@ router.get('/', (req, res) => {
     try { features = JSON.parse(c.features_list || '[]') } catch {}
     c.features_list = features
       .filter(f => f?.effects?.length)
-      .map(f => ({ name: f.name, effects: f.effects }))
+      .map(f => ({ name: f.name, togglable: f.togglable, active: f.active, effects: f.effects }))
     // Only equipped armor (armor conditions) and items with effects matter here
     let equipment = []
     try { equipment = JSON.parse(c.equipment || '[]') } catch {}

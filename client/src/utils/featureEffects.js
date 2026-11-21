@@ -38,9 +38,12 @@ export function conditionsForTarget(target, { item = false } = {}) {
   return [...base, ...ARMOR_CONDITIONS]
 }
 
-// Everything that can carry effects: features, then inventory items
+// A togglable feature (e.g. an artificer infusion) only applies its effects while switched on
+export const featureActive = f => !f?.togglable || !!f.active
+
+// Everything that can carry effects: active features, then inventory items
 export function effectSources(features, equipment) {
-  return [...(features || []), ...(equipment || []).filter(i => i?.effects?.length)]
+  return [...(features || []).filter(featureActive), ...(equipment || []).filter(i => i?.effects?.length)]
 }
 
 export const WEAPON_FILTERS = [

@@ -243,6 +243,13 @@ function EffectsHelp({ onClose }) {
           ]} />
           <p>Armor conditions look at the armor marked as <b>equipped</b> in the inventory. Only one condition can be chosen per effect.</p>
 
+          <H>On/Off features</H>
+          <p>
+            Tick <b>Can be toggled on/off</b> while editing a feature to give it an <b>On/Off</b> switch in the features list.
+            Its effects only count while it's on, and it stays on or off until you switch it. Useful for things you choose
+            between, such as artificer infusions: add them all up front, then switch on the ones you picked after a long rest.
+          </p>
+
           <H>Item effects</H>
           <p>
             Edit an item in the inventory to add effects, exactly like on features. Use <b>If attuned</b> for items that require

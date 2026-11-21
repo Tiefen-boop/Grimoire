@@ -3542,6 +3542,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             const featChargesMax    = watch(`features_list.${i}.charges_max`)
             const featChargesRech   = watch(`features_list.${i}.charges_recharge`)
             const featEffects       = watch(`features_list.${i}.effects`) || []
+            const featTogglable     = !!watch(`features_list.${i}.togglable`)
+            const featActive        = !!watch(`features_list.${i}.active`)
+            const featOff           = featTogglable && !featActive
             const rechLabel = featChargesRech === 'short' ? 'Short Rest' : featChargesRech === 'long' ? 'Long Rest' : null
             return (
               <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingFeatureId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
@@ -3565,6 +3568,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none">
                         <input type="checkbox" {...register(`features_list.${i}.has_charges`)} className="accent-red-700 w-4 h-4" />
                         Has charges
+                      </label>
+                      <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none"
+                        title="Adds an On/Off switch; its effects only apply while it's on (e.g. artificer infusions)">
+                        <input type="checkbox" {...register(`features_list.${i}.togglable`)} className="accent-red-700 w-4 h-4" />
+                        Can be toggled on/off
                       </label>
                       {featHasCharges && (
                         <>
@@ -3645,9 +3653,20 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                               <span className="text-stone-500 text-xs">({featSource})</span>
                             )}
                             {featEffects.length > 0 && (
-                              <span className="text-amber-400 text-xs" title={featEffects.map(e => effectSummary(e)).join('\n')}>✦</span>
+                              <span className={`${featOff ? 'text-stone-500' : 'text-amber-400'} text-xs`}
+                                title={(featOff ? 'Off: effects inactive\n' : '') + featEffects.map(e => effectSummary(e)).join('\n')}>✦</span>
                             )}
                           </div>
+                          {featTogglable && (
+                            <button type="button" disabled={readOnly}
+                              onClick={e => { e.stopPropagation(); setValue(`features_list.${i}.active`, !featActive, { shouldDirty: true }) }}
+                              title={featActive ? 'On: effects apply. Click to switch off' : 'Off: effects inactive. Click to switch on'}
+                              className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium transition ${featActive
+                                ? 'border-amber-600 bg-amber-900/40 text-amber-300 hover:bg-amber-900/60'
+                                : 'border-stone-600 text-stone-500 hover:text-stone-300 hover:border-stone-500'} disabled:cursor-default`}>
+                              {featActive ? 'On' : 'Off'}
+                            </button>
+                          )}
                           {/* Group 2: charges + Use — wraps as a unit after group 1 */}
                           {featHasCharges && (
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -3686,8 +3705,8 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                           : featEffects.length === 0 && <p className="text-stone-500 text-sm italic">No description.</p>
                         }
                         {featEffects.length > 0 && (
-                          <ul className={`text-amber-300/90 text-xs space-y-0.5 ${featDesc ? 'mt-2' : ''}`}>
-                            {featEffects.map((eff, j) => <li key={j}>✦ {effectSummary(eff)}</li>)}
+                          <ul className={`${featOff ? 'text-stone-500' : 'text-amber-300/90'} text-xs space-y-0.5 ${featDesc ? 'mt-2' : ''}`}>
+                            {featEffects.map((eff, j) => <li key={j}>✦ {effectSummary(eff)}{featOff && <span className="italic"> (off, inactive)</span>}</li>)}
                           </ul>
                         )}
                       </div>
@@ -3699,7 +3718,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           })}
         </div>
         {!readOnly && (
-          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '', effects: [] }) }}
+          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '', togglable: false, active: false, effects: [] }) }}
             className="btn btn-secondary btn-sm">
             <PlusIcon className="w-4 h-4 mr-1" /> Add Feature
           </button>

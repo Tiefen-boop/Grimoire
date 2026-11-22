@@ -2425,13 +2425,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         for (const key of Object.keys(data)) {
           if (JSON.stringify(data[key]) !== JSON.stringify(saved[key])) changed[key] = data[key]
         }
-        if (Object.keys(changed).length > 0) await api.put(`/characters/${id}`, changed)
+        if (Object.keys(changed).length > 0) {
+          // Time out instead of hanging forever on a dead connection, and don't jump to the login page on 401
+          await api.put(`/characters/${id}`, changed, { timeout: 10000, skipAuthRedirect: true })
+        }
         savedValuesRef.current = JSON.stringify(data)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       }
     } catch (err) {
-      setSaveErrorModal(err.response?.data?.error || 'Save failed')
+      setSaveErrorModal(
+        !err.response                 ? "Couldn't reach the server."
+        : err.response.status === 401 ? 'Your login session has expired.'
+        : err.response.data?.error || `Server error (${err.response.status}).`)
     }
   }
 
@@ -4007,9 +4013,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })()}
 
       {/* Save error */}
-      <Modal open={!!saveErrorModal} title="Save Failed" danger onCancel={() => setSaveErrorModal(null)} cancelLabel="OK">
-        <p className="text-stone-300">{saveErrorModal}</p>
-        <p className="text-stone-500 text-sm mt-1">Your changes may not have been saved. Check your connection and try again.</p>
+      <Modal open={!!saveErrorModal} title="⚠️ Auto-save failed!" danger onCancel={() => setSaveErrorModal(null)} cancelLabel="OK">
+        <p className="text-stone-100 font-semibold">Refresh and try again.</p>
+        <p className="text-stone-400 text-sm mt-2">{saveErrorModal} Your latest changes were not saved; note them down before refreshing.</p>
       </Modal>
 
       {/* Feature modals */}

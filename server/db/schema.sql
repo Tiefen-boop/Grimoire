@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS characters (
   intelligence INTEGER NOT NULL DEFAULT 10,
   wisdom INTEGER NOT NULL DEFAULT 10,
   charisma INTEGER NOT NULL DEFAULT 10,
+  -- Abilities auto-calculated from feature effects (JSON array of ability names); others are manual
+  ability_auto TEXT NOT NULL DEFAULT '[]',
 
   -- Saving throw proficiencies (JSON array of ability names)
   saving_throw_profs TEXT NOT NULL DEFAULT '[]',
@@ -51,6 +53,8 @@ CREATE TABLE IF NOT EXISTS characters (
   initiative_manual INTEGER NOT NULL DEFAULT 0,
   speed INTEGER NOT NULL DEFAULT 30,
   max_hp INTEGER NOT NULL DEFAULT 0,
+  -- 1 = max HP auto-calculated from hit die rolls (classes[].hp_rolls) + CON×level
+  max_hp_auto INTEGER NOT NULL DEFAULT 0,
   current_hp INTEGER NOT NULL DEFAULT 0,
   temp_hp INTEGER NOT NULL DEFAULT 0,
   hit_dice TEXT NOT NULL DEFAULT '',

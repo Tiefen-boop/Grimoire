@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { useFieldArray } from 'react-hook-form'
 import { PlusIcon, TrashIcon, PencilIcon, CheckIcon, ChevronDownIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import Modal from './Modal'
-import { evalFormula } from '../utils/formulaEval'
+import { evalFormula, canonicalizeFormula } from '../utils/formulaEval'
+import { armorState, effectSources, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
+import Markdown, { MarkdownHelpLink } from './Markdown'
+import EffectsEditor, { effectSummary } from './EffectsEditor'
 
 function checkArmorProficiency(item, armorProfs) {
   if (!item.armor_category) return null
@@ -172,6 +175,14 @@ const CATEGORIES = [
 export default function EquipmentSection({ control, register, watch, setValue, readOnly, onEditingChange, weaponProfs = [], armorProfs = [] }) {
   const { fields, append, remove, move } = useFieldArray({ control, name: 'equipment' })
 
+  // Register a formula input; on blur, rewrite tokens to their canonical form (strength → STR)
+  const registerFormula = name => register(name, {
+    onBlur: e => {
+      const canon = canonicalizeFormula(e.target.value)
+      if (canon !== e.target.value) setValue(name, canon, { shouldDirty: true })
+    }
+  })
+
   const [expanded, setExpanded]   = useState(new Set())
   const [editing, setEditing]     = useState(new Set())
   const [weaponErrors,    setWeaponErrors]    = useState(new Set())
@@ -314,6 +325,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     wisdom:            watch('wisdom'),
     charisma:          watch('charisma'),
     proficiency_bonus: watch('proficiency_bonus'),
+    classes:           watch('classes') || [],
   }
 
   function isWeaponProficient(item) {
@@ -326,6 +338,14 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     if (isWeaponProficient(item)) return charStats
     return { ...charStats, proficiency_bonus: 0 }
   }
+
+  // Feature effects on weapon attack/damage (Archery, Dueling, …)
+  const fxFeatures = effectSources(watch('features_list'), allEquip)  // features + item effects
+  const fxArmor    = armorState(allEquip)
+  const weaponAtk = (item, formula) =>
+    evalFormula(addBonusToFormula(formula, weaponEffects(fxFeatures, charStats, item, fxArmor).attack.total), weaponStats(item))
+  const weaponDmg = (item, formula) =>
+    evalFormula(addBonusToFormula(formula, weaponEffects(fxFeatures, charStats, item, fxArmor).damage.total), charStats)
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -438,7 +458,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
   function autoFillAttack(index, range) {
     if (watch(`equipment.${index}.attack_modifier`)) return
-    setValue(`equipment.${index}.attack_modifier`, range === 'ranged' ? 'DEX+prof' : 'STR+prof', { shouldDirty: true })
+    setValue(`equipment.${index}.attack_modifier`, range === 'ranged' ? 'DEX+PROF' : 'STR+PROF', { shouldDirty: true })
   }
 
   // Property helpers
@@ -448,17 +468,16 @@ export default function EquipmentSection({ control, register, watch, setValue, r
     if (!propName) return
     const curr = watch(`equipment.${i}.properties`) || []
     if (curr.some(p => p.name === propName)) return
-    setValue(`equipment.${i}.properties`, [...curr, { name: propName, extra: propExtra }], { shouldDirty: true })
+    const extra = selPropDef?.extraType === 'damage' ? canonicalizeFormula(propExtra) : propExtra
+    setValue(`equipment.${i}.properties`, [...curr, { name: propName, extra }], { shouldDirty: true })
     if (propName === 'Finesse') {
-      const swapStrDex = s => (s || '').replace(/\bstr\b/gi, m =>
-        m === m.toUpperCase() ? 'DEX' : m[0] === m[0].toUpperCase() ? 'Dex' : 'dex'
-      )
+      const swapStrDex = s => canonicalizeFormula(s || '').replace(/\bSTR\b/g, 'DEX')
       setValue(`equipment.${i}.finesse_attack_modifier`, swapStrDex(watch(`equipment.${i}.attack_modifier`)), { shouldDirty: true })
       setValue(`equipment.${i}.finesse_damage_roll`,     swapStrDex(watch(`equipment.${i}.damage_roll`)),     { shouldDirty: true })
     }
-    if (propName === 'Versatile' && propExtra) {
+    if (propName === 'Versatile' && extra) {
       const mainDmg = watch(`equipment.${i}.damage_roll`) || ''
-      const versatileDmg = mainDmg ? mainDmg.replace(/\d+d\d+/, propExtra) : propExtra
+      const versatileDmg = mainDmg ? mainDmg.replace(/\d+d\d+/, extra) : extra
       setValue(`equipment.${i}.versatile_damage_roll`, versatileDmg, { shouldDirty: true })
     }
     setPropFormFor(null); setPropName(''); setPropExtra('')
@@ -674,28 +693,28 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-stone-400 text-sm shrink-0 w-8">Att:</span>
-                                <input {...register(`equipment.${i}.attack_modifier`)} className="input flex-1"
-                                  placeholder="e.g. STR+prof" />
+                                <input {...registerFormula(`equipment.${i}.attack_modifier`)} className="input flex-1"
+                                  placeholder="e.g. STR+PROF" />
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-stone-400 text-sm shrink-0 w-8">Dmg:</span>
-                                <input {...register(`equipment.${i}.damage_roll`)} className="input flex-1"
+                                <input {...registerFormula(`equipment.${i}.damage_roll`)} className="input flex-1"
                                   placeholder="e.g. 1d8+STR[slashing]" />
                               </div>
                             </div>
                             {props.some(p => p.name === 'Finesse') && (
                               <div className="flex gap-2 flex-wrap items-center">
                                 <span className="text-xs text-green-400 shrink-0 w-16">Finesse:</span>
-                                <input {...register(`equipment.${i}.finesse_attack_modifier`)} className="input flex-1 min-w-36"
-                                  placeholder="Finesse attack (e.g. DEX+prof)" />
-                                <input {...register(`equipment.${i}.finesse_damage_roll`)} className="input flex-1 min-w-36"
+                                <input {...registerFormula(`equipment.${i}.finesse_attack_modifier`)} className="input flex-1 min-w-36"
+                                  placeholder="Finesse attack (e.g. DEX+PROF)" />
+                                <input {...registerFormula(`equipment.${i}.finesse_damage_roll`)} className="input flex-1 min-w-36"
                                   placeholder="Finesse damage (e.g. 1d8+DEX[slashing])" />
                               </div>
                             )}
                             {props.some(p => p.name === 'Versatile') && (
                               <div className="flex gap-2 flex-wrap items-center">
                                 <span className="text-xs text-yellow-400 shrink-0 w-16">Versatile:</span>
-                                <input {...register(`equipment.${i}.versatile_damage_roll`)} className="input flex-1 min-w-36"
+                                <input {...registerFormula(`equipment.${i}.versatile_damage_roll`)} className="input flex-1 min-w-36"
                                   placeholder="Two-handed damage (e.g. 1d10+STR[slashing])" />
                               </div>
                             )}
@@ -747,7 +766,7 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             </select>
                             <div className="flex items-center gap-2 flex-1">
                               <span className="text-stone-400 text-sm shrink-0">AC:</span>
-                              <input {...register(`equipment.${i}.ac_formula`)} className="input flex-1"
+                              <input {...registerFormula(`equipment.${i}.ac_formula`)} className="input flex-1"
                                 placeholder="e.g. 16, 13+DEX, +2" />
                             </div>
                           </div>
@@ -840,8 +859,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                         )}
 
                         {/* Description */}
-                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none"
-                          rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <textarea dir="auto" {...register(`equipment.${i}.description`)} className="input w-full resize-none md:min-h-[16rem]"
+                          rows={3} placeholder="Description (optional, supports markdown)" style={{ whiteSpace: 'pre-wrap' }} />
+                        <div className="text-right"><MarkdownHelpLink /></div>
+                        <EffectsEditor item
+                          effects={item.effects || []}
+                          onChange={next => setValue(`equipment.${i}.effects`, next, { shouldDirty: true })}
+                          charStats={charStats} />
                         <button type="button" onClick={confirmEdit}
                           className="sm:hidden w-full py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-sm">
                           Save
@@ -887,6 +911,10 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <div className="flex items-center gap-1.5 flex-1 min-w-0">
                               <span className="text-stone-100 text-sm font-medium truncate">
                                 {item.name || <span className="text-stone-500 italic">Unnamed</span>}
+                                {item.effects?.length > 0 && (
+                                  <span className={`text-xs ml-1 ${item.effects.some(e => e.condition === 'attuned') && !item.attuned ? 'text-stone-500' : 'text-amber-400'}`}
+                                    title={item.effects.map(e => effectSummary(e, { item: true })).join('\n')}>✦</span>
+                                )}
                               </span>
                               {cat.type === 'weapon' && item.weapon_class && (() => {
                                 const classMatch = item.weapon_class === 'simple' ? weaponProfs.includes('Simple') : weaponProfs.includes('Martial')
@@ -964,13 +992,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ml-5 mt-1 text-xs text-stone-400">
                               {cat.type === 'weapon' && item.amount && <span>×{item.amount}</span>}
                               {cat.type === 'weapon' && item.attack_modifier && (
-                                <span><span className="text-stone-500">Att:</span> {fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, weaponStats(item)))}</span>
+                                <span><span className="text-stone-500">Att:</span> {fmtAttack(weaponAtk(item, item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier))}</span>
                               )}
                               {cat.type === 'weapon' && item.damage_roll && (() => {
                                 const versatileProp = (item.properties || []).find(p => p.name === 'Versatile')
                                 const versatileDmg  = item.versatile_damage_roll || versatileProp?.extra
                                 const effectiveDmg = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
-                                return <span><span className="text-stone-500">Dmg:</span> {evalFormula(effectiveDmg, charStats)}</span>
+                                return <span><span className="text-stone-500">Dmg:</span> {weaponDmg(item, effectiveDmg)}</span>
                               })()}
                               {cat.type === 'armor' && item.ac_formula && (
                                 <span><span className="text-stone-500">AC:</span> {(item.armor_category === 'shield' ? '+' : '') + evalFormula(item.ac_formula, charStats)}</span>
@@ -1014,13 +1042,13 @@ export default function EquipmentSection({ control, register, watch, setValue, r
                                     </span>
                                   )}
                                   {item.attack_modifier && (
-                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{fmtAttack(evalFormula(item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier, weaponStats(item)))}</span></span>
+                                    <span className="text-stone-400 text-sm">Att: <span className="text-stone-200">{fmtAttack(weaponAtk(item, item.finesse_active && item.finesse_attack_modifier ? item.finesse_attack_modifier : item.attack_modifier))}</span></span>
                                   )}
                                   {item.damage_roll && (() => {
                                     const versatileProp = props.find(p => p.name === 'Versatile')
                                     const versatileDmg  = item.versatile_damage_roll || versatileProp?.extra
                                     const effectiveDmg = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
-                                    return <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{evalFormula(effectiveDmg, charStats)}</span></span>
+                                    return <span className="text-stone-400 text-sm">Dmg: <span className="text-stone-200">{weaponDmg(item, effectiveDmg)}</span></span>
                                   })()}
                                 </div>
                                 {props.length > 0 && (
@@ -1067,12 +1095,18 @@ export default function EquipmentSection({ control, register, watch, setValue, r
 
                             {/* Description */}
                             {item.description
-                              ? item.description.split(/\n\n+/).map((para, i) => (
-                                  <p key={i} dir="auto" className={`text-stone-300 text-sm whitespace-pre-wrap${i > 0 ? ' mt-2' : ''}`}
-                                     style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
-                                ))
-                              : <p className="text-stone-500 text-sm italic">No description.</p>
+                              ? <Markdown text={item.description} className="text-stone-300 text-sm" />
+                              : !item.effects?.length && <p className="text-stone-500 text-sm italic">No description.</p>
                             }
+                            {item.effects?.length > 0 && (
+                              <ul className={`text-amber-300/90 text-xs space-y-0.5 ${item.description ? 'mt-2' : ''}`}>
+                                {item.effects.map((eff, j) => (
+                                  <li key={j} className={eff.condition === 'attuned' && !item.attuned ? 'text-stone-500' : ''}>
+                                    ✦ {effectSummary(eff, { item: true })}{eff.condition === 'attuned' && !item.attuned ? ' — not attuned, inactive' : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                         )}
                       </div>

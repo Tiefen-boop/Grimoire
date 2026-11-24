@@ -11,7 +11,8 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401 && !err.config.url.includes('/auth/login')) {
+    // skipAuthRedirect: the caller handles 401 itself (auto-save warns instead of leaving the page and losing edits)
+    if (err.response?.status === 401 && !err.config.url.includes('/auth/login') && !err.config.skipAuthRedirect) {
       localStorage.removeItem('token')
       window.location.href = '/login'
     }

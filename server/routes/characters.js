@@ -8,10 +8,10 @@ router.use(requireAuth)
 const CHARACTER_FIELDS = [
   'name','class','subclass','level','race','background','alignment','experience_points',
   'classes',
-  'strength','dexterity','constitution','intelligence','wisdom','charisma',
+  'strength','dexterity','constitution','intelligence','wisdom','charisma','ability_auto',
   'saving_throw_profs','skill_profs','skill_expertise',
   'proficiency_bonus','inspiration',
-  'armor_class','armor_class_manual','initiative_bonus','initiative_manual','speed','size','max_hp','current_hp','temp_hp',
+  'armor_class','armor_class_manual','initiative_bonus','initiative_manual','speed','size','max_hp','max_hp_auto','current_hp','temp_hp',
   'hit_dice','hit_dice_remaining','death_save_successes','death_save_failures',
   'attacks','equipment','copper','silver','electrum','gold','platinum',
   'personality_traits','ideals','bonds','flaws','features_and_traits',
@@ -28,7 +28,7 @@ const CHARACTER_FIELDS = [
 const JSON_FIELDS = new Set([
   'saving_throw_profs','skill_profs','skill_expertise','attacks','equipment',
   'spell_slots','spells','conditions','features_list','classes',
-  'weapon_profs','armor_profs','tool_profs','languages'
+  'weapon_profs','armor_profs','tool_profs','languages','ability_auto'
 ])
 
 function parseJsonFields(char) {
@@ -72,9 +72,26 @@ router.get('/all', (req, res) => {
 router.get('/', (req, res) => {
   if (req.user.role === 'admin') return res.json([])
   const db = getDb()
-  const chars = db.prepare(
-    'SELECT id, owner_id, name, class, level, race, current_hp, max_hp, portrait, updated_at FROM characters WHERE owner_id = ? ORDER BY name'
-  ).all(req.user.id)
+  const chars = db.prepare(`
+    SELECT id, owner_id, name, class, level, race, current_hp, max_hp, portrait, updated_at,
+           strength, dexterity, constitution, intelligence, wisdom, charisma,
+           proficiency_bonus, classes, exhaustion, features_list, equipment
+    FROM characters WHERE owner_id = ? ORDER BY name
+  `).all(req.user.id)
+  // Only feature effects are needed for the list (effective max HP); drop descriptions etc.
+  for (const c of chars) {
+    let features = []
+    try { features = JSON.parse(c.features_list || '[]') } catch {}
+    c.features_list = features
+      .filter(f => f?.effects?.length)
+      .map(f => ({ name: f.name, togglable: f.togglable, active: f.active, effects: f.effects }))
+    // Only equipped armor (armor conditions) and items with effects matter here
+    let equipment = []
+    try { equipment = JSON.parse(c.equipment || '[]') } catch {}
+    c.equipment = equipment
+      .filter(i => (i?.type === 'armor' && i.equipped) || i?.effects?.length)
+      .map(i => ({ name: i.name, type: i.type, armor_category: i.armor_category, equipped: i.equipped, attuned: i.attuned, effects: i.effects }))
+  }
   res.json(chars)
 })
 

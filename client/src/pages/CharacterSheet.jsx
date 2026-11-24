@@ -3,20 +3,17 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm, useFieldArray, useWatch } from 'react-hook-form'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
-
-// Splits on blank lines and gives each paragraph its own dir="auto" so RTL/LTR
-// is detected independently per paragraph rather than for the whole text block.
-function DescBlock({ text, className }) {
-  if (!text) return null
-  return text.split(/\n\n+/).map((para, i) => (
-    <p key={i} dir="auto" className={`${className}${i > 0 ? ' mt-2' : ''}`}
-       style={{ whiteSpace: 'pre-wrap' }}>{para}</p>
-  ))
-}
 import { PlusIcon, TrashIcon, ChevronDownIcon, PencilIcon, CheckIcon, SparklesIcon, XMarkIcon, CameraIcon, UserCircleIcon, ClockIcon, MoonIcon } from '@heroicons/react/24/outline'
+import Markdown, { MarkdownHelpLink } from '../components/Markdown'
 import EquipmentSection from '../components/EquipmentSection'
 import Modal from '../components/Modal'
-import { evalFormula } from '../utils/formulaEval'
+import { evalFormula, canonicalizeFormula } from '../utils/formulaEval'
+import { effectBonus, effectSources, applyEffects, sourcesTitle, armorState, bestAcBase, weaponEffects, addBonusToFormula } from '../utils/featureEffects'
+import EffectsEditor, { effectSummary } from '../components/EffectsEditor'
+
+// Description text rendered as markdown; each block gets its own dir="auto"
+// so RTL/LTR is detected per paragraph rather than for the whole text.
+const DescBlock = Markdown
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const ABILITY_SHORT = { strength: 'STR', dexterity: 'DEX', constitution: 'CON', intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA' }
@@ -50,6 +47,14 @@ const SKILLS = [
   { name: 'Stealth', ability: 'dexterity' },
   { name: 'Survival', ability: 'wisdom' },
 ]
+
+// New characters start with all abilities auto-calculated from this feature (10 each)
+const BASE_ABILITY_FEATURE = {
+  name: 'Base Ability Scores', source: '',
+  description: 'Your base ability scores. Edit this feature\'s effects to set them; racial bonuses, improvements and feats can be added as separate effects.',
+  has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '',
+  effects: ABILITIES.map(a => ({ target: `ability:${a}`, value: '10', condition: 'always' })),
+}
 
 const ALIGNMENTS = ['Lawful Good','Neutral Good','Chaotic Good','Lawful Neutral','True Neutral','Chaotic Neutral','Lawful Evil','Neutral Evil','Chaotic Evil']
 const SIZES = ['Tiny','Small','Medium','Large','Huge','Gargantuan']
@@ -163,6 +168,25 @@ function stringifyHitDice(dice) {
     .join('+')
 }
 
+// Hit die of a class as { count, size } ('d8' → 1×8, '2d6' → 2×6), or null if unset
+function parseHitDie(hitDie) {
+  const m = String(hitDie || '').match(/^(\d*)[dD](\d+)$/)
+  return m ? { count: parseInt(m[1]) || 1, size: parseInt(m[2]) } : null
+}
+const hitDieMax = d => d.count * d.size
+const hitDieAvg = d => d.count * (d.size / 2 + 1)
+const rollHitDie = d => Array.from({ length: d.count }, () => Math.floor(Math.random() * d.size) + 1).reduce((a, b) => a + b, 0)
+
+// Hit die result for each level of a class; levels without a recorded result count as the average
+function classHpRolls(cls) {
+  const d = parseHitDie(cls?.hit_die)
+  const level = parseInt(cls?.level) || 0
+  return Array.from({ length: level }, (_, k) => {
+    const v = parseInt(cls?.hp_rolls?.[k])
+    return Number.isFinite(v) ? v : (d ? hitDieAvg(d) : 0)
+  })
+}
+
 function computeHitDice(classes) {
   const counts = {}
   for (const cls of classes) {
@@ -239,6 +263,16 @@ function computeEffectiveSpeed(base, conditions, exhaustion) {
 }
 function fmtMod(n) {
   return n >= 0 ? `+${n}` : `${n}`
+}
+
+// Small marker shown next to a stat that feature effects modify; click for the breakdown
+function EffectMarker({ label, sources, onShow }) {
+  if (!sources?.length) return null
+  return (
+    <button type="button" title={sourcesTitle(sources)}
+      onClick={e => { e.stopPropagation(); onShow({ label, sources }) }}
+      className="text-amber-400 hover:text-amber-300 text-xs leading-none px-0.5 shrink-0">✦</button>
+  )
 }
 
 function parseArithExpr(str) {
@@ -841,7 +875,7 @@ function AttacksSpellcastingBlock({ classIndex, className, castingAbility, spell
                                 {sp.school      && <p className="text-xs text-stone-400"><span className="text-stone-500">School:</span> {sp.school}</p>}
                                 {compDisplay    && <p className="text-xs text-stone-400"><span className="text-stone-500">Components:</span> {compDisplay}</p>}
                                 {sp.duration    && <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>}
-                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />}
+                                {sp.description && <DescBlock text={sp.description} className="text-stone-300 text-sm" />}
                               </div>
                             )}
                           </div>
@@ -1181,9 +1215,10 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                             <AutoResizeTextarea
                               registerResult={register(`classes.${classIndex}.spells.${i}.description`)}
                               className="input w-full text-sm"
-                              placeholder="Description (optional)"
+                              placeholder="Description (optional, supports markdown)"
                               style={{ whiteSpace: 'pre-wrap', minHeight: '3rem' }}
                             />
+                            <div className="text-right"><MarkdownHelpLink /></div>
                             {/* Row 5: higher level */}
                             <div>
                               <label className="label text-xs mb-1">Using a Higher-Level Spell Slot</label>
@@ -1278,7 +1313,7 @@ function SpellcastingBlock({ classIndex, castingAbility, slotRecovery, spellPrep
                                   <p className="text-xs text-stone-400"><span className="text-stone-500">Duration:</span> {sp.duration}</p>
                                 )}
                                 {sp.description && (
-                                  <DescBlock text={sp.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                  <DescBlock text={sp.description} className="text-stone-300 text-sm" />
                                 )}
                                 {sp.higher_level && (
                                   <div className="text-sm text-stone-300 whitespace-pre-wrap">
@@ -1545,7 +1580,7 @@ export default function CharacterSheet() {
       character_backstory: '', allies_and_organizations: '',
       additional_features_and_traits: '', treasure: '',
       age: '', height: '', weight: '', eyes: '', skin: '', hair: '', appearance_notes: '',
-      passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0,
+      passive_perception: 10, conditions: [], notes: '', features_list: [], exhaustion: 0, ability_auto: [], max_hp_auto: 0,
       speed_base: null, max_hp_base: null,
       unarmed_attack_modifier: '', unarmed_damage_roll: '',
       weapon_profs: [], armor_profs: [], tool_profs: [], languages: [],
@@ -1571,6 +1606,8 @@ export default function CharacterSheet() {
   const [maxHpDisplay,  setMaxHpDisplay]  = useState(null)
   const [acEdit,   setAcEdit]   = useState(null)
   const [initEdit, setInitEdit] = useState(null)
+  const [speedEdit, setSpeedEdit] = useState(null)
+  const [effectInfo, setEffectInfo] = useState(null)  // { label, sources } for the effect-breakdown popup
   const currHpFocused = useRef(false)
   const maxHpFocused  = useRef(false)
   const [abilityDisplay, setAbilityDisplay] = useState({})
@@ -1633,6 +1670,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const [outOfChargesModal, setOutOfChargesModal] = useState(null) // { name }
 
   const [editingClasses,  setEditingClasses]  = useState(new Set())
+  const [expandedClasses, setExpandedClasses] = useState(new Set())
   const [classErrors,     setClassErrors]     = useState({})
   const prevClassesLengthRef = useRef(0)
   const classPreEditRef = useRef({})
@@ -1772,8 +1810,16 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       setClassErrors(prev => ({ ...prev, [fieldId]: `Missing: ${missing.join(', ')}.` })); return
     }
     setClassErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n })
+    const isNewClass = !classPreEditRef.current[fieldId]
     const pre = classPreEditRef.current[fieldId] || { level: 0, hit_die: '' }
     delete classPreEditRef.current[fieldId]
+    // One hit die result per level: a new class starts at the die's max; other unrecorded levels take the average
+    const die = parseHitDie(cls.hit_die)
+    const rolls = Array.from({ length: parseInt(cls.level) || 0 }, (_, k) => {
+      const v = parseInt(cls.hp_rolls?.[k])
+      return Number.isFinite(v) ? v : (k === 0 && isNewClass ? hitDieMax(die) : hitDieAvg(die))
+    })
+    if (JSON.stringify(rolls) !== JSON.stringify(cls.hp_rolls || [])) setValue(`classes.${i}.hp_rolls`, rolls, { shouldDirty: true })
     const delta = hitDiceDelta(computeHitDice([pre]), computeHitDice([{ level: cls?.level || 0, hit_die: cls?.hit_die || '' }]))
     if (delta) setValue('hit_dice_remaining', addHitDiceStr(watch('hit_dice_remaining') || '', delta), { shouldDirty: true })
     setEditingClasses(prev => { const n = new Set(prev); n.delete(fieldId); return n })
@@ -1793,17 +1839,35 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     setDeleteClassModal(null)
   }
   function handleLevelUp(i) {
-    setLevelUpModal({ index: i, className: allClasses[i]?.name || 'this class' })
+    setLevelUpModal({ index: i, className: allClasses[i]?.name || 'this class', roll: '', error: false })
   }
   function confirmLevelUp() {
     const i = levelUpModal.index
     const cls = allClasses[i]
+    const hd = parseHitDie(cls?.hit_die)
+    let roll = 0
+    if (hd) {
+      roll = parseInt(levelUpModal.roll)
+      if (!Number.isFinite(roll) || roll < 1) { setLevelUpModal(prev => ({ ...prev, error: true })); return }
+      setValue(`classes.${i}.hp_rolls`, [...classHpRolls(cls), roll], { shouldDirty: true })
+    }
     const m = String(cls?.hit_die || '').match(/^(\d*)[dD](\d+)$/)
     if (m) {
       const die = `${parseInt(m[1]) || 1}d${m[2]}`
       setValue('hit_dice_remaining', addHitDiceStr(watch('hit_dice_remaining') || '', die), { shouldDirty: true })
     }
     const curr = parseInt(watch(`classes.${i}.level`)) || 0
+
+    // Add the max HP gained by this level to current HP: the hit die roll + CON (auto max HP only)
+    // and any growth of Max HP effects (e.g. Tough's 2×LVL), with the same exhaustion halving as max HP
+    const newClasses = allClasses.map((c, k) => k === i ? { ...c, level: curr + 1 } : c)
+    const newStats   = { ...charStats, level: _xpTotalLevel + 1, classes: newClasses }
+    const halve      = v => fxExhaustion >= 4 ? Math.floor(v / 2) : v
+    const autoTarget = base => fxExhaustion >= 4 ? Math.max(1, Math.floor(base / 2)) : base
+    let gain = halve(effectBonus(fxSources, newStats, 'max_hp', { armor: currentArmor }).total) - hpFxApplied
+    if (maxHpAuto) gain += autoTarget(autoMaxHpBase + roll + mod(watchedAbilities[2] ?? 10)) - autoTarget(autoMaxHpBase)
+    if (gain > 0) setValue('current_hp', (watch('current_hp') ?? 0) + gain, { shouldDirty: true })
+
     setValue(`classes.${i}.level`, curr + 1, { shouldDirty: true })
     setValue('experience_points', 0, { shouldDirty: true })
     setLevelUpModal(null)
@@ -1827,7 +1891,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }
   }
 
-  const watchedAbilities  = watch(ABILITIES)
+  const storedAbilities   = watch(ABILITIES)
   const watchedAcManual   = !!watch('armor_class_manual')
   const watchedInitManual = !!watch('initiative_manual')
   const watchedStoredAC   = watch('armor_class') ?? 10
@@ -1847,7 +1911,82 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const _xpCap = (_xpTotalLevel + 1) <= 20 ? XP_THRESHOLDS[_xpTotalLevel + 1] : null
   const xpFull = !!(_xpCap && watchedXp >= _xpCap)
 
-  const watchedMaxHp  = watch('max_hp')     ?? 0
+  // Effect sources (features + items) and equipped armor
+  const watchedFeatures = watch('features_list') || []
+  const fxSources       = effectSources(watchedFeatures, watch('equipment'))
+  const currentArmor    = armorState(watch('equipment'))
+
+  // Ability scores. Auto abilities = sum of 'ability:<name>' effects (uncapped — Primal Champion, homebrew).
+  // Manual abilities ignore bonuses (they'd double-count what was typed in) but still respect "set to at least"
+  // floors (Gauntlets of Ogre Power). Ability effects are evaluated with neutral (10) scores so they can't feed back.
+  const abilityAuto  = watch('ability_auto') || []
+  const neutralStats = {
+    strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10,
+    proficiency_bonus: watchedProfBonus, level: _xpTotalLevel || 1, classes: allClasses,
+  }
+  const abilityFx = Object.fromEntries(ABILITIES.map(a =>
+    [a, effectBonus(fxSources, neutralStats, `ability:${a}`, { armor: currentArmor })]))
+  const autoAbilityScore = a => applyEffects(0, abilityFx[a]).value
+  const abilityResults = ABILITIES.map((a, i) => abilityAuto.includes(a)
+    ? applyEffects(0, abilityFx[a])
+    : applyEffects(storedAbilities[i] ?? 10, { total: 0, sources: [], min: abilityFx[a].min }))
+  const watchedAbilities = abilityResults.map(r => r.value)
+
+  const charStats = {
+    strength: watchedAbilities[0], dexterity: watchedAbilities[1],
+    constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
+    wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
+    proficiency_bonus: watchedProfBonus, level: _xpTotalLevel || 1, classes: allClasses
+  }
+
+  // Feature/item effects — computed live on top of stored values, never written back
+  const fxConditions    = watch('conditions') || []
+  const fxExhaustion    = watch('exhaustion') ?? 0
+  const getEffect       = (target, status) => effectBonus(fxSources, charStats, target, { armor: currentArmor, ...status })
+  const initFx  = getEffect('initiative')
+  const acFx    = getEffect('ac')
+
+  // Keep stored scores of auto abilities in sync, so everything else (mods, PDF, lists) just reads them
+  const autoAbilityKey = JSON.stringify(ABILITIES.map(a => abilityAuto.includes(a) ? autoAbilityScore(a) : null))
+  useEffect(() => {
+    if (loading || readOnly) return
+    for (const a of ABILITIES) {
+      if (!abilityAuto.includes(a)) continue
+      const v = autoAbilityScore(a)
+      if (watch(a) !== v) setValue(a, v, { shouldDirty: true })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAbilityKey, loading, readOnly])
+  const speedFx = getEffect('speed')
+  const hpFx    = getEffect('max_hp')
+  // Mirror condition/exhaustion rules already applied to the stored speed & max HP
+  const speedFxApplied = (fxConditions.some(c => SPEED_ZERO_CONDITIONS.has(c)) || fxExhaustion >= 5) ? 0
+    : fxExhaustion >= 2 ? Math.floor(speedFx.total / 2) : speedFx.total
+  const hpFxApplied = fxExhaustion >= 4 ? Math.floor(hpFx.total / 2) : hpFx.total
+
+  const storedSpeed   = watch('speed') ?? 0
+  const effectiveSpeed = storedSpeed + speedFxApplied
+
+  // Auto max HP: every class level's hit die result + CON modifier × total level (effects are added on top below).
+  // The stored max_hp is kept in sync (halved at exhaustion 4+), so lists/PDF read it like a manual value.
+  const maxHpAuto     = !!watch('max_hp_auto')
+  const hpRollsTotal  = allClasses.reduce((sum, cls) => sum + classHpRolls(cls).reduce((a, b) => a + b, 0), 0)
+  const conHp         = mod(watchedAbilities[2] ?? 10) * _xpTotalLevel
+  const autoMaxHpBase = hpRollsTotal + conHp
+  useEffect(() => {
+    if (loading || readOnly || !maxHpAuto) return
+    const target = fxExhaustion >= 4 ? Math.max(1, Math.floor(autoMaxHpBase / 2)) : autoMaxHpBase
+    if (watch('max_hp') !== target) setValue('max_hp', target, { shouldDirty: true })
+    if (watch('max_hp_base') != null) setValue('max_hp_base', null, { shouldDirty: true })
+    if ((watch('current_hp') ?? 0) > target + hpFxApplied) setValue('current_hp', target + hpFxApplied, { shouldDirty: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMaxHpBase, maxHpAuto, fxExhaustion, hpFxApplied, loading, readOnly])
+  const maxHpSources = maxHpAuto
+    ? [{ name: 'Hit die rolls', value: hpRollsTotal, base: true }, { name: 'CON × level', value: conHp }, ...hpFx.sources]
+    : hpFx.sources
+
+  const storedMaxHp   = watch('max_hp')     ?? 0
+  const watchedMaxHp  = storedMaxHp + hpFxApplied
   const watchedCurrHp = watch('current_hp') ?? 0
   const watchedTempHp = watch('temp_hp')    ?? 0
   const safeMax       = watchedMaxHp > 0 ? watchedMaxHp : 1
@@ -1856,19 +1995,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
   const redFillPct    = Math.min(watchedCurrHp, watchedMaxHp) / safeMax * hpBarWidthPct
   const greenFillPct  = Math.min(watchedTempHp / safeMax, 1) * 100
 
-  const autoInitBonus = mod(watchedAbilities[1] ?? 10)
-
-  const charStats = {
-    strength: watchedAbilities[0], dexterity: watchedAbilities[1],
-    constitution: watchedAbilities[2], intelligence: watchedAbilities[3],
-    wisdom: watchedAbilities[4], charisma: watchedAbilities[5],
-    proficiency_bonus: watchedProfBonus
-  }
+  const initResult    = applyEffects(mod(watchedAbilities[1] ?? 10), initFx)
+  const autoInitBonus = initResult.value
 
   const hasNonProfArmor = (watch('equipment') || []).some(
     item => item.type === 'armor' && item.equipped && checkArmorProficiency(item, watchedArmorProfs) === false
   )
 
+  let acBaseSource = null
+  let acResult = null
   const autoAC = (() => {
     const equipped = (watch('equipment') || []).filter(i => i.type === 'armor' && i.equipped)
     const body = equipped.filter(i => i.armor_category !== 'shield')
@@ -1878,9 +2013,15 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       const acs = body.map(i => parseFloat(evalFormula(i.ac_formula, charStats)) || 0)
       base = Math.max(...acs)
     }
+    // 'AC calculation' effects (Unarmored Defense etc.) replace the base when higher
+    const calc = bestAcBase(fxSources, charStats, { armor: currentArmor }, base)
+    acBaseSource = calc.source
     const shieldBonus = shields.reduce((sum, i) => sum + (parseFloat(evalFormula(i.ac_formula, charStats)) || 0), 0)
-    return base + shieldBonus
+    acResult = applyEffects(calc.base + shieldBonus, acFx)
+    return acResult.value
   })()
+  const acSources = acResult.sources[0]?.min ? acResult.sources
+    : acBaseSource ? [acBaseSource, ...acResult.sources] : acResult.sources
 
   const watchedHdRemaining    = watch('hit_dice_remaining') || ''
   const watchedDeathSuccesses = watch('death_save_successes') ?? 0
@@ -2137,6 +2278,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     }
 
     // --- Max HP effects (exhaustion level 4 → halved) ---
+    if (watch('max_hp_auto')) return  // auto max HP applies the halving itself
     const currMaxHp = watch('max_hp')
     const hpBase    = watch('max_hp_base') ?? null
 
@@ -2171,7 +2313,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
   useEffect(() => {
     if (isNew) {
-      api.post('/characters', { name: '' })
+      api.post('/characters', { name: '', ability_auto: ABILITIES, features_list: [BASE_ABILITY_FEATURE], max_hp_auto: 1 })
         .then(r => navigate(`/characters/${r.data.id}`, { replace: true, state: location.state }))
         .catch(() => { setError('Failed to create character'); setLoading(false) })
       return
@@ -2201,18 +2343,31 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
     return mod(watchedAbilities[idx] || 10)
   }, [watchedAbilities])
 
-  const getSavingThrow = useCallback((ability) => {
+  const getSaveFx = (ability) =>
+    getEffect(`save:${ability}`, { proficient: watchedProfs.includes(ability) })
+
+  const getSkillFx = (skill) =>
+    getEffect(`skill:${skill.name}`, {
+      proficient: watchedSkillProfs.includes(skill.name),
+      expert: watchedSkillExp.includes(skill.name),
+    })
+
+  // { value, sources } with effects (bonuses and "set to at least" floors) applied
+  const getSaveResult = (ability) => {
     const base = getAbilityMod(ability)
     const proficient = watchedProfs.includes(ability)
-    return base + (proficient ? watchedProfBonus : 0)
-  }, [getAbilityMod, watchedProfs, watchedProfBonus])
+    return applyEffects(base + (proficient ? watchedProfBonus : 0), getSaveFx(ability))
+  }
 
-  const getSkillBonus = useCallback((skill) => {
+  const getSkillResult = (skill) => {
     const base = getAbilityMod(skill.ability)
     const proficient = watchedSkillProfs.includes(skill.name)
     const expert = watchedSkillExp.includes(skill.name)
-    return base + (expert ? watchedProfBonus * 2 : proficient ? watchedProfBonus : 0)
-  }, [getAbilityMod, watchedSkillProfs, watchedSkillExp, watchedProfBonus])
+    return applyEffects(base + (expert ? watchedProfBonus * 2 : proficient ? watchedProfBonus : 0), getSkillFx(skill))
+  }
+
+  const getSavingThrow = (ability) => getSaveResult(ability).value
+  const getSkillBonus  = (skill) => getSkillResult(skill).value
 
   function toggleArrayValue(fieldName, value) {
     const current = watch(fieldName) || []
@@ -2230,7 +2385,16 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         import('@react-pdf/renderer'),
         import('../components/CharacterPDF'),
       ])
-      const blob = await pdf(<CharacterPDF data={watch()} />).toBlob()
+      // Pass the values as shown on the sheet (auto AC/initiative, feature effects applied)
+      const data = {
+        ...watch(),
+        ...Object.fromEntries(ABILITIES.map((a, i) => [a, watchedAbilities[i]])),
+        armor_class:      watchedAcManual   ? watchedStoredAC   : autoAC,
+        initiative_bonus: watchedInitManual ? watchedStoredInit : autoInitBonus,
+        speed:            effectiveSpeed,
+        max_hp:           watchedMaxHp,
+      }
+      const blob = await pdf(<CharacterPDF data={data} />).toBlob()
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement('a')
       a.href     = url
@@ -2261,13 +2425,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         for (const key of Object.keys(data)) {
           if (JSON.stringify(data[key]) !== JSON.stringify(saved[key])) changed[key] = data[key]
         }
-        if (Object.keys(changed).length > 0) await api.put(`/characters/${id}`, changed)
+        if (Object.keys(changed).length > 0) {
+          // Time out instead of hanging forever on a dead connection, and don't jump to the login page on 401
+          await api.put(`/characters/${id}`, changed, { timeout: 10000, skipAuthRedirect: true })
+        }
         savedValuesRef.current = JSON.stringify(data)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       }
     } catch (err) {
-      setSaveErrorModal(err.response?.data?.error || 'Save failed')
+      setSaveErrorModal(
+        !err.response                 ? "Couldn't reach the server."
+        : err.response.status === 401 ? 'Your login session has expired.'
+        : err.response.data?.error || `Server error (${err.response.status}).`)
     }
   }
 
@@ -2474,7 +2644,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             <span className="label">Classes</span>
             {!readOnly && (
               <button type="button"
-                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_preparation: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
+                onClick={() => { pendingNewClass.current = true; addClass({ name: '', subclass: '', level: 1, hit_die: '', hp_rolls: [], is_spellcaster: false, casting_ability: '', slot_recovery: 'long', spell_preparation: '', spell_slots: {}, spells: [] }); setValue('experience_points', 0, { shouldDirty: true }) }}
                 className="btn btn-secondary btn-sm py-0.5 text-xs">
                 <PlusIcon className="w-3 h-3 mr-1" /> Add Class
               </button>
@@ -2529,13 +2699,36 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                           </>
                         )}
                       </div>
+                      {/* Hit die result per level */}
+                      {(() => {
+                        const die = parseHitDie(cls.hit_die)
+                        const level = parseInt(cls.level) || 0
+                        if (!die || level < 1) return null
+                        const isNewClass = !classPreEditRef.current[field.id]
+                        return (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs text-stone-500">Hit die rolls (by level):</span>
+                            {Array.from({ length: level }, (_, k) => (
+                              <label key={k} className="flex items-center gap-0.5 text-xs text-stone-500">
+                                <span>{k + 1}</span>
+                                <input type="number" min={1} {...register(`classes.${i}.hp_rolls.${k}`, { valueAsNumber: true })}
+                                  className="no-spinner input w-12 text-center px-1"
+                                  placeholder={String(k === 0 && isNewClass ? hitDieMax(die) : hitDieAvg(die))} />
+                              </label>
+                            ))}
+                          </div>
+                        )
+                      })()}
                       {classErrors[field.id] && (
                         <p className="text-red-400 text-xs px-3 pb-1">{classErrors[field.id]}</p>
                       )}
                     </div>
                   ) : (
+                    <>
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0 cursor-pointer select-none"
+                        onClick={() => setExpandedClasses(prev => { const n = new Set(prev); n.has(field.id) ? n.delete(field.id) : n.add(field.id); return n })}>
+                        <ChevronDownIcon className={`w-4 h-4 text-stone-500 shrink-0 transition-transform ${expandedClasses.has(field.id) ? '' : '-rotate-90'}`} />
                         {cls.is_spellcaster && <SparklesIcon className="w-3.5 h-3.5 text-yellow-400 shrink-0" />}
                         <span className="text-stone-100 text-sm font-medium whitespace-nowrap">
                           {cls.name || <span className="text-stone-500 italic">Unnamed class</span>}
@@ -2565,6 +2758,29 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         )}
                       </div>
                     </div>
+                    {expandedClasses.has(field.id) && (() => {
+                      const rolls = classHpRolls(cls)
+                      return (
+                        <div className="px-3 pb-2 pt-1.5 border-t border-stone-700 text-xs text-stone-400">
+                          {rolls.length === 0 ? <span className="italic text-stone-500">No levels.</span> : (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span className="text-stone-500">Hit die rolls{cls.hit_die ? ` (${cls.hit_die})` : ''}:</span>
+                              {rolls.map((r, k) => {
+                                const recorded = Number.isFinite(parseInt(cls.hp_rolls?.[k]))
+                                return (
+                                  <span key={k} title={recorded ? undefined : 'Not recorded — counts as the average'}>
+                                    <span className="text-stone-500">Lv {k + 1}:</span>{' '}
+                                    <span className={recorded ? 'text-stone-200 font-semibold' : 'text-stone-500 italic'}>{r}{recorded ? '' : ' (avg)'}</span>
+                                  </span>
+                                )
+                              })}
+                              <span className="text-stone-500">· Total: <span className="text-stone-200 font-semibold">{rolls.reduce((a, b) => a + b, 0)}</span></span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                    </>
                   )}
                 </div>
               )
@@ -2637,7 +2853,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             const c = ABILITY_COLORS[ability]
             return (
               <div key={ability} className={`stat-box border ${c.border} text-center`}>
-                <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${c.label}`}>{ABILITY_SHORT[ability]}</div>
+                <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${c.label}`}>
+                  {ABILITY_SHORT[ability]}
+                  <EffectMarker label={`${ABILITY_SHORT[ability]} score`} sources={abilityResults[i].sources} onShow={setEffectInfo} />
+                </div>
                 <input
                   type="text" inputMode="text"
                   value={abilityFocusedRef.current === ability ? (abilityDisplay[ability] ?? '') : (watchedAbilities[i] ?? 10)}
@@ -2647,13 +2866,19 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     abilityFocusedRef.current = null
                     const raw = (abilityDisplay[ability] ?? '').trim()
                     const prev = watchedAbilities[i] ?? 10
-                    if (!raw) { setAbilityDisplay(p => ({ ...p, [ability]: null })); return }
+                    setAbilityDisplay(p => ({ ...p, [ability]: null }))
+                    if (!raw) {
+                      // Empty → auto-calculate from feature effects (like AC / initiative)
+                      if (!abilityAuto.includes(ability)) setValue('ability_auto', [...abilityAuto, ability], { shouldDirty: true })
+                      return
+                    }
                     const leadingOp = raw.match(/^([+\-*/])(.+)$/)
                     let result = leadingOp ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`) : parseArithExpr(raw)
                     if (result === null) result = prev
-                    const final = Math.min(30, Math.max(1, Math.round(result)))
+                    const final = Math.round(result)
+                    if (final === prev) return  // unchanged — keep auto mode / don't bake a "set to at least" floor in
                     setValue(ability, final, { shouldDirty: true })
-                    setAbilityDisplay(p => ({ ...p, [ability]: null }))
+                    if (abilityAuto.includes(ability)) setValue('ability_auto', abilityAuto.filter(a => a !== ability), { shouldDirty: true })
                   }}
                   onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                   className={`no-spinner bg-transparent text-center text-2xl font-bold w-full focus:outline-none py-0.5 mb-0.5 ${c.text}`}
@@ -2681,6 +2906,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     <span className={`text-sm flex-1 font-medium transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>
                       {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
                     </span>
+                    <EffectMarker label={`${ABILITY_SHORT[ability]} save`} sources={getSaveResult(ability).sources} onShow={setEffectInfo} />
                     <span className={`text-sm tabular-nums transition-colors ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</span>
                   </div>
                 )
@@ -2688,22 +2914,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             </div>
           </div>
           <div className="flex flex-col gap-3 justify-start">
-            {(() => {
-              const passivePerception = 10 + getSkillBonus(SKILLS.find(s => s.name === 'Perception'))
-              const passiveInsight    = 10 + getSkillBonus(SKILLS.find(s => s.name === 'Insight'))
+            {[
+              { key: 'perception',    skill: 'Perception',    label: 'Passive Perception',    ability: 'wisdom' },
+              { key: 'insight',       skill: 'Insight',       label: 'Passive Insight',       ability: 'wisdom' },
+              { key: 'investigation', skill: 'Investigation', label: 'Passive Investigation', ability: 'intelligence' },
+            ].map(p => {
+              const passive = applyEffects(10 + getSkillBonus(SKILLS.find(s => s.name === p.skill)), getEffect(`passive:${p.key}`))
+              const value = passive.value
+              const c = ABILITY_COLORS[p.ability]
               return (
-                <>
-                  <div className={`stat-box border ${ABILITY_COLORS.wisdom.border} text-center`}>
-                    <div className="label text-xs text-center">Passive Perception</div>
-                    <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS.wisdom.text}`}>{passivePerception}</div>
-                  </div>
-                  <div className={`stat-box border ${ABILITY_COLORS.wisdom.border} text-center`}>
-                    <div className="label text-xs text-center">Passive Insight</div>
-                    <div className={`text-2xl font-bold text-center py-1 ${ABILITY_COLORS.wisdom.text}`}>{passiveInsight}</div>
-                  </div>
-                </>
+                <div key={p.key} className={`stat-box border ${c.border} text-center`}>
+                  <div className="label text-xs text-center">{p.label}<EffectMarker label={p.label} sources={passive.sources} onShow={setEffectInfo} /></div>
+                  <div className={`text-2xl font-bold text-center py-1 ${c.text}`}>{value}</div>
+                </div>
               )
-            })()}
+            })}
           </div>
         </div>
 
@@ -2738,6 +2963,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   <span className={`text-sm flex-1 transition-colors ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>
                     {skill.name}{hasNonProfArmor && (skill.ability === 'strength' || skill.ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
                   </span>
+                  <EffectMarker label={skill.name} sources={getSkillResult(skill).sources} onShow={setEffectInfo} />
                   <span className={`text-xs font-medium ${c.label}`}>{ABILITY_SHORT[skill.ability]}</span>
                   <span className={`text-sm tabular-nums ${isExpert ? `font-semibold ${c.text}` : isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSkillBonus(skill))}</span>
                 </div>
@@ -2748,7 +2974,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       </Section>
 
       {/* Combat */}
-      <Section title={<span className="text-red-300">⚔️ Combat</span>} sectionKey="Combat" locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
+      <Section title={<span className="text-red-300">⚔️ Combat</span>} sectionKey="Combat" extraClass={activeTab === 'combat' && watchedInspiration ? 'inspiration-active' : ''} locked={activeTab === 'combat'} hidden={activeTab !== 'main' && activeTab !== 'combat'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
 
           {/* HP + Temp HP bars */}
@@ -2761,6 +2987,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                 style={{ width: `${redFillPct}%` }} />
               <div className="absolute inset-0 flex items-center justify-center gap-1 z-10">
                 <span className="text-red-200 font-semibold text-sm select-none">HP</span>
+                <EffectMarker label="Max HP" sources={maxHpSources} onShow={setEffectInfo} />
                 <input type="text" inputMode="text"
                   value={currHpFocused.current ? (currHpDisplay ?? '') : (watchedCurrHp ?? 0)}
                   onFocus={() => { currHpFocused.current = true; setCurrHpDisplay(String(watchedCurrHp ?? 0)) }}
@@ -2805,14 +3032,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     maxHpFocused.current = false
                     const raw = (maxHpDisplay ?? '').trim()
                     const prev = watchedMaxHp ?? 0
-                    if (!raw) { setMaxHpDisplay(null); return }
+                    if (!raw) {
+                      // Empty → auto-calculate from hit die rolls (like AC / initiative / ability scores)
+                      setMaxHpDisplay(null)
+                      if (!maxHpAuto) setValue('max_hp_auto', 1, { shouldDirty: true })
+                      return
+                    }
                     const leadingOp = raw.match(/^([+\-*/])(.+)$/)
                     let result = leadingOp
                       ? parseArithExpr(`${prev}${leadingOp[1]}${leadingOp[2]}`)
                       : parseArithExpr(raw)
                     if (result === null) result = prev
                     const newMax = Math.max(0, Math.round(result))
-                    setValue('max_hp', newMax, { shouldDirty: true })
+                    if (newMax === prev) { setMaxHpDisplay(null); return }  // unchanged — keep auto mode
+                    setValue('max_hp', Math.max(0, newMax - hpFxApplied), { shouldDirty: true })
+                    if (maxHpAuto) setValue('max_hp_auto', 0, { shouldDirty: true })
                     const curr = watchedCurrHp ?? 0
                     const clampedCurr = Math.min(curr, newMax)
                     if (curr > newMax) setValue('current_hp', clampedCurr, { shouldDirty: true })
@@ -2893,7 +3127,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     fill="#292524" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10" style={{ paddingBottom: '20%' }}>
-                  <span className="label text-xs text-center select-none">AC</span>
+                  <span className="label text-xs text-center select-none">AC<EffectMarker label="AC" sources={watchedAcManual ? [] : acSources} onShow={setEffectInfo} /></span>
                   <input type="text" inputMode="numeric"
                     value={acEdit !== null ? acEdit : String(watchedAcManual ? watchedStoredAC : autoAC)}
                     onFocus={() => setAcEdit(String(watchedAcManual ? watchedStoredAC : autoAC))}
@@ -2920,16 +3154,25 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
 
             {/* Speed */}
             <div className="flex-1 stat-box flex flex-col items-center justify-center">
-              <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾</div>
-              <input type="number"
-                {...register('speed', { valueAsNumber: true })}
+              <div className="label text-xs text-center whitespace-nowrap">🥾 Speed 🥾<EffectMarker label="Speed" sources={speedFx.sources} onShow={setEffectInfo} /></div>
+              <input type="text" inputMode="numeric"
+                value={speedEdit !== null ? speedEdit : String(effectiveSpeed)}
+                onFocus={() => setSpeedEdit(String(effectiveSpeed))}
+                onChange={e => setSpeedEdit(e.target.value)}
+                onBlur={() => {
+                  const n = parseInt((speedEdit ?? '').trim())
+                  if (!isNaN(n)) setValue('speed', Math.max(0, n - speedFxApplied), { shouldDirty: true })
+                  setSpeedEdit(null)
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
+                title={sourcesTitle(speedFx.sources) || undefined}
                 className="no-spinner bg-transparent border-0 text-center w-full p-0 text-lg font-bold focus:outline-none text-stone-100 font-sans mt-1"
                 disabled={readOnly} />
             </div>
 
             {/* Initiative */}
             <div className="flex-1 stat-box flex flex-col items-center justify-center">
-              <div className="label text-xs text-center">Initiative</div>
+              <div className="label text-xs text-center">Initiative<EffectMarker label="Initiative" sources={watchedInitManual ? [] : initResult.sources} onShow={setEffectInfo} /></div>
               <input type="text" inputMode="numeric"
                 value={initEdit !== null ? initEdit : fmtMod(watchedInitManual ? watchedStoredInit : autoInitBonus)}
                 onFocus={() => setInitEdit(String(watchedInitManual ? watchedStoredInit : autoInitBonus))}
@@ -2976,7 +3219,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     <div className={`text-xs font-semibold ${isProficient ? c.label : 'text-stone-500'}`}>
                       {ABILITY_SHORT[ability]}{hasNonProfArmor && (ability === 'strength' || ability === 'dexterity') && <sup className="text-red-400 text-xs font-bold leading-none">D</sup>}
                     </div>
-                    <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}</div>
+                    <div className={`font-bold text-lg tabular-nums ${isProficient ? c.text : 'text-stone-400'}`}>{fmtMod(getSavingThrow(ability))}<EffectMarker label={`${ABILITY_SHORT[ability]} save`} sources={getSaveResult(ability).sources} onShow={setEffectInfo} /></div>
                     {isProficient && <div className={`w-2 h-2 rounded-full mx-auto mt-0.5 ${c.dot}`} />}
                   </div>
                 )
@@ -3104,8 +3347,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                   {(() => {
                     const unarmedAtk = watch('unarmed_attack_modifier') || ''
                     const unarmedDmg = watch('unarmed_damage_roll') || ''
-                    const atkValue   = evalFormula(unarmedAtk || 'STR+prof', charStats)
-                    const dmgValue   = evalFormula(unarmedDmg || '1+STR',    charStats)
+                    const fx         = weaponEffects(fxSources, charStats, { unarmed: true }, currentArmor)
+                    const atkValue   = evalFormula(addBonusToFormula(unarmedAtk || 'STR+PROF', fx.attack.total), charStats)
+                    const dmgValue   = evalFormula(addBonusToFormula(unarmedDmg || '1+STR', fx.damage.total), charStats)
                     return (
                       <tr className="border-b border-stone-700 bg-stone-900/40">
                         <td className="py-2 pr-2">
@@ -3121,13 +3365,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                         </td>
                         <td className="py-2 pr-3 text-center">
                           {unarmedEditing && !readOnly
-                            ? <input {...register('unarmed_attack_modifier')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+prof" />
-                            : <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}</span>}
+                            ? <input {...register('unarmed_attack_modifier', { onBlur: e => { const c = canonicalizeFormula(e.target.value); if (c !== e.target.value) setValue('unarmed_attack_modifier', c, { shouldDirty: true }) } })} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="STR+PROF" />
+                            : <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}<EffectMarker label="Unarmed attack" sources={fx.attack.sources} onShow={setEffectInfo} /></span>}
                         </td>
                         <td className="py-2 pr-3 text-center">
                           {unarmedEditing && !readOnly
-                            ? <input {...register('unarmed_damage_roll')} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="1+STR" />
-                            : <span className="text-stone-100 font-bold text-base">{dmgValue}</span>}
+                            ? <input {...register('unarmed_damage_roll', { onBlur: e => { const c = canonicalizeFormula(e.target.value); if (c !== e.target.value) setValue('unarmed_damage_roll', c, { shouldDirty: true }) } })} className="bg-transparent border-b border-stone-500 focus:border-stone-300 focus:outline-none text-center text-sm w-28 text-stone-100 py-0 leading-none" placeholder="1+STR" />
+                            : <span className="text-stone-100 font-bold text-base">{dmgValue}<EffectMarker label="Unarmed damage" sources={fx.damage.sources} onShow={setEffectInfo} /></span>}
                         </td>
                         <td className="py-2 text-center">
                           <span className="text-stone-600">—</span>
@@ -3145,8 +3389,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     const dmgFormula = item.versatile_active && versatileDmg ? versatileDmg : (item.finesse_active && item.finesse_damage_roll ? item.finesse_damage_roll : item.damage_roll)
                     const proficient = checkWeaponProficiency(item, watchedWeaponProfs)
                     const evalStats  = proficient === false ? { ...charStats, proficiency_bonus: 0 } : charStats
-                    const atkValue   = atkFormula ? evalFormula(atkFormula, evalStats) : '—'
-                    const dmgValue   = dmgFormula ? evalFormula(dmgFormula, evalStats) : '—'
+                    const fx         = weaponEffects(fxSources, charStats, item, currentArmor)
+                    const atkValue   = atkFormula ? evalFormula(addBonusToFormula(atkFormula, fx.attack.total), evalStats) : '—'
+                    const dmgValue   = dmgFormula ? evalFormula(addBonusToFormula(dmgFormula, fx.damage.total), evalStats) : '—'
                     const isExpanded = expandedWeapons.has(i)
                     const props      = item.properties || []
 
@@ -3167,10 +3412,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             </div>
                           </td>
                           <td className="py-2 pr-3 text-center">
-                            <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}</span>
+                            <span className="text-stone-100 font-bold text-base tabular-nums">{fmtAttack(atkValue)}{atkFormula && <EffectMarker label={`${item.name || 'Weapon'} attack`} sources={fx.attack.sources} onShow={setEffectInfo} />}</span>
                           </td>
                           <td className="py-2 pr-3 text-center">
-                            <span className="text-stone-100 font-bold text-base">{dmgValue}</span>
+                            <span className="text-stone-100 font-bold text-base">{dmgValue}{dmgFormula && <EffectMarker label={`${item.name || 'Weapon'} damage`} sources={fx.damage.sources} onShow={setEffectInfo} />}</span>
                           </td>
                           <td className="py-2 text-center" onClick={e => e.stopPropagation()}>
                             {item.has_charges ? (
@@ -3236,7 +3481,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                                   </div>
                                 )}
                                 {item.description
-                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm whitespace-pre-wrap" />
+                                  ? <DescBlock text={item.description} className="text-stone-300 text-sm" />
                                   : <p className="text-stone-500 text-sm italic">No description.</p>
                                 }
                               </div>
@@ -3298,6 +3543,10 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
             const featChargesCur    = watch(`features_list.${i}.charges_current`)
             const featChargesMax    = watch(`features_list.${i}.charges_max`)
             const featChargesRech   = watch(`features_list.${i}.charges_recharge`)
+            const featEffects       = watch(`features_list.${i}.effects`) || []
+            const featTogglable     = !!watch(`features_list.${i}.togglable`)
+            const featActive        = !!watch(`features_list.${i}.active`)
+            const featOff           = featTogglable && !featActive
             const rechLabel = featChargesRech === 'short' ? 'Short Rest' : featChargesRech === 'long' ? 'Long Rest' : null
             return (
               <div key={field.id} className={`bg-stone-800 border rounded-lg overflow-hidden transition duration-200 ${draggingFeatureId === field.id ? 'scale-[1.03] shadow-2xl border-stone-400 relative z-10' : 'border-stone-700'}`}>
@@ -3321,6 +3570,11 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none">
                         <input type="checkbox" {...register(`features_list.${i}.has_charges`)} className="accent-red-700 w-4 h-4" />
                         Has charges
+                      </label>
+                      <label className="flex items-center gap-1.5 text-sm text-stone-400 cursor-pointer select-none"
+                        title="Adds an On/Off switch; its effects only apply while it's on (e.g. artificer infusions)">
+                        <input type="checkbox" {...register(`features_list.${i}.togglable`)} className="accent-red-700 w-4 h-4" />
+                        Can be toggled on/off
                       </label>
                       {featHasCharges && (
                         <>
@@ -3356,8 +3610,13 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                       )}
                     </div>
                     {/* Description */}
-                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none"
-                      rows={3} placeholder="Description (optional)" style={{ whiteSpace: 'pre-wrap' }} />
+                    <textarea dir="auto" {...register(`features_list.${i}.description`)} className="input w-full resize-none md:min-h-[16rem]"
+                      rows={3} placeholder="Description (optional, supports markdown)" style={{ whiteSpace: 'pre-wrap' }} />
+                    <div className="text-right"><MarkdownHelpLink /></div>
+                    <EffectsEditor
+                      effects={featEffects}
+                      onChange={next => setValue(`features_list.${i}.effects`, next, { shouldDirty: true })}
+                      charStats={charStats} />
                   </div>
                 ) : (
                   <div
@@ -3396,7 +3655,21 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                             {featSource && (
                               <span className="text-stone-500 text-xs">({featSource})</span>
                             )}
+                            {featEffects.length > 0 && (
+                              <span className={`${featOff ? 'text-stone-500' : 'text-amber-400'} text-xs`}
+                                title={(featOff ? 'Off: effects inactive\n' : '') + featEffects.map(e => effectSummary(e)).join('\n')}>✦</span>
+                            )}
                           </div>
+                          {featTogglable && (
+                            <button type="button" disabled={readOnly}
+                              onClick={e => { e.stopPropagation(); setValue(`features_list.${i}.active`, !featActive, { shouldDirty: true }) }}
+                              title={featActive ? 'On: effects apply. Click to switch off' : 'Off: effects inactive. Click to switch on'}
+                              className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium transition ${featActive
+                                ? 'border-amber-600 bg-amber-900/40 text-amber-300 hover:bg-amber-900/60'
+                                : 'border-stone-600 text-stone-500 hover:text-stone-300 hover:border-stone-500'} disabled:cursor-default`}>
+                              {featActive ? 'On' : 'Off'}
+                            </button>
+                          )}
                           {/* Group 2: charges + Use — wraps as a unit after group 1 */}
                           {featHasCharges && (
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -3431,9 +3704,14 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
                     {isExpanded && (
                       <div className="px-3 pb-3 border-t border-stone-700 pt-2">
                         {featDesc
-                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm whitespace-pre-wrap" />
-                          : <p className="text-stone-500 text-sm italic">No description.</p>
+                          ? <DescBlock text={featDesc} className="text-stone-300 text-sm" />
+                          : featEffects.length === 0 && <p className="text-stone-500 text-sm italic">No description.</p>
                         }
+                        {featEffects.length > 0 && (
+                          <ul className={`${featOff ? 'text-stone-500' : 'text-amber-300/90'} text-xs space-y-0.5 ${featDesc ? 'mt-2' : ''}`}>
+                            {featEffects.map((eff, j) => <li key={j}>✦ {effectSummary(eff)}{featOff && <span className="italic"> (off, inactive)</span>}</li>)}
+                          </ul>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3443,7 +3721,7 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
           })}
         </div>
         {!readOnly && (
-          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '' }) }}
+          <button type="button" onClick={() => { pendingNewFeature.current = true; addFeature({ name: '', source: '', description: '', has_charges: false, charges_current: 1, charges_max: 1, charges_recharge: '', togglable: false, active: false, effects: [] }) }}
             className="btn btn-secondary btn-sm">
             <PlusIcon className="w-4 h-4 mr-1" /> Add Feature
           </button>
@@ -3689,6 +3967,28 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         onConfirm={confirmLevelUp} onCancel={() => setLevelUpModal(null)} confirmLabel="Level Up">
         Level up in <strong>{levelUpModal?.className}</strong>?{' '}
         (→ Level {(parseInt(watch(`classes.${levelUpModal?.index ?? 0}.level`)) || 0) + 1})
+        {(() => {
+          const hd = parseHitDie(allClasses[levelUpModal?.index ?? 0]?.hit_die)
+          if (!levelUpModal || !hd) return null
+          const setRoll = v => setLevelUpModal(prev => ({ ...prev, roll: String(v), error: false }))
+          return (
+            <div className="mt-4 space-y-2">
+              <label className="flex items-center gap-2">
+                <span className="text-stone-400">Hit die roll ({allClasses[levelUpModal.index]?.hit_die}):</span>
+                <input type="text" inputMode="numeric" value={levelUpModal.roll} autoFocus
+                  onChange={e => setLevelUpModal(prev => ({ ...prev, roll: e.target.value, error: false }))}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmLevelUp() } }}
+                  className={`input w-16 text-center ${levelUpModal.error ? 'border-red-600' : ''}`} />
+              </label>
+              {levelUpModal.error && <p className="text-red-400 text-xs">Enter the hit die result, or pick one below.</p>}
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" onClick={() => setRoll(rollHitDie(hd))} className="btn btn-secondary btn-sm">🎲 Roll for me</button>
+                <button type="button" onClick={() => setRoll(hitDieAvg(hd))} className="btn btn-secondary btn-sm">Take average ({hitDieAvg(hd)})</button>
+                <button type="button" onClick={() => setRoll(hitDieMax(hd))} className="btn btn-secondary btn-sm">Take max ({hitDieMax(hd)})</button>
+              </div>
+            </div>
+          )
+        })()}
       </Modal>
 
       {/* PDF export handler (no modal needed — triggers download directly) */}
@@ -3713,9 +4013,9 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
       })()}
 
       {/* Save error */}
-      <Modal open={!!saveErrorModal} title="Save Failed" danger onCancel={() => setSaveErrorModal(null)} cancelLabel="OK">
-        <p className="text-stone-300">{saveErrorModal}</p>
-        <p className="text-stone-500 text-sm mt-1">Your changes may not have been saved. Check your connection and try again.</p>
+      <Modal open={!!saveErrorModal} title="⚠️ Auto-save failed!" danger onCancel={() => setSaveErrorModal(null)} cancelLabel="OK">
+        <p className="text-stone-100 font-semibold">Refresh and try again.</p>
+        <p className="text-stone-400 text-sm mt-2">{saveErrorModal} Your latest changes were not saved; note them down before refreshing.</p>
       </Modal>
 
       {/* Feature modals */}
@@ -3769,6 +4069,18 @@ const [expandedFeatures, setExpandedFeatures] = useState(new Set())
         onCancel={() => setConcentratePending(null)}
         confirmLabel="Switch">
         Already concentrating on <strong>{concentratingInfo?.name}</strong><br />Are you sure?
+      </Modal>
+
+      <Modal open={!!effectInfo} title={`${effectInfo?.label ?? ''} — feature effects`}
+        onCancel={() => setEffectInfo(null)} cancelLabel="Close">
+        <ul className="space-y-1">
+          {(effectInfo?.sources || []).map((src, i) => (
+            <li key={i} className="flex justify-between gap-4">
+              <span>{src.name}</span>
+              <span className="tabular-nums text-amber-300">{src.base ? `base ${src.value}` : src.min ? `at least ${src.value}` : fmtMod(src.value)}</span>
+            </li>
+          ))}
+        </ul>
       </Modal>
 
       {showShortRestModal && (
